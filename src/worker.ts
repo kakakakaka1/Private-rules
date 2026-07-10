@@ -7,6 +7,7 @@ import {
   createCategory,
   deleteCategory,
   deleteRule,
+  ensureDatabase,
   getRulesData,
   importRulesData,
   insertRule,
@@ -21,6 +22,11 @@ import { resolveFile } from './lib/formatters';
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 type AppContext = Context<{ Bindings: Env; Variables: AppVariables }>;
+
+app.use('*', async (c, next) => {
+  await ensureDatabase(c.env);
+  await next();
+});
 
 function withLinks(c: AppContext, data: Awaited<ReturnType<typeof getRulesData>>) {
   return { data, links: linksByCategory(data, c.req.url) };

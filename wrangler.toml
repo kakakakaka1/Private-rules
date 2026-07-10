@@ -9,5 +9,5 @@ binding = "ASSETS"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "private-rules-db"
-database_id = "replace-with-your-d1-database-id"
+# 留空资源 ID，让 Cloudflare Workers Builds 在首次部署时自动创建 D1。
+# 创建后的数据库会显示在 Cloudflare Dashboard，绑定名始终为 DB。
