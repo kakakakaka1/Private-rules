@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.11.1 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test:unit
+      - run: pnpm test:contract
+      - run: pnpm test:api
+      - run: pnpm build
+      - run: pnpm wrangler deploy --dry-run --keep-vars
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      ADMIN_PASSWORD: ci-admin-password
+      SESSION_SECRET: ci-session-secret-at-least-32-characters
+      RULE_TOKEN: ci-rule-token
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config
+      - run: docker build --tag private-rules:ci .

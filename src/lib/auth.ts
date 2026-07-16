@@ -7,6 +7,15 @@ import { id, slugify } from './slug';
 const COOKIE_NAME = 'private_rules_session';
 const maxAgeSeconds = 60 * 60 * 24 * 14;
 
+function requestIsSecure(c: Context<{ Bindings: Env; Variables: AppVariables }>) {
+  if (c.env.BASE_URL) return new URL(c.env.BASE_URL).protocol === 'https:';
+  if (c.env.TRUST_PROXY) {
+    const forwardedProto = c.req.header('x-forwarded-proto')?.split(',')[0].trim().toLowerCase();
+    if (forwardedProto) return forwardedProto === 'https';
+  }
+  return new URL(c.req.url).protocol === 'https:';
+}
+
 async function hmac(secret: string, value: string) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
@@ -85,7 +94,7 @@ export async function createSession(c: Context<{ Bindings: Env; Variables: AppVa
     .run();
   setCookie(c, COOKIE_NAME, await signed(c.env.SESSION_SECRET!, sessionId), {
     httpOnly: true,
-    secure: new URL(c.req.url).protocol === 'https:',
+    secure: requestIsSecure(c),
     sameSite: 'Lax',
     path: '/',
     maxAge: maxAgeSeconds,
@@ -95,7 +104,7 @@ export async function createSession(c: Context<{ Bindings: Env; Variables: AppVa
 export async function destroySession(c: Context<{ Bindings: Env; Variables: AppVariables }>) {
   const sessionId = await currentSessionId(c);
   if (sessionId) await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run();
-  setCookie(c, COOKIE_NAME, '', { path: '/', maxAge: 0, httpOnly: true });
+  setCookie(c, COOKIE_NAME, '', { path: '/', maxAge: 0, httpOnly: true, secure: requestIsSecure(c), sameSite: 'Lax' });
 }
 
 export async function currentSessionId(c: Context<{ Bindings: Env; Variables: AppVariables }>) {

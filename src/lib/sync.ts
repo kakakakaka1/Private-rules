@@ -8,6 +8,12 @@ import { loadGeositeRules } from './geosite';
 type SourceRecord = { id: string; category_id: string; name: string; url: string; last_synced_at: string | null; sync_interval_minutes: number | null; source_type: 'url' | 'geosite' | 'geoip' | null; geosite_name: string | null; geoip_name: string | null };
 export type SyncResult = { sourceId: string; categoryId: string; name: string; ok: boolean; count: number; error?: string; syncedAt: string };
 
+export function isSourceDue(source: Pick<SourceRecord, 'last_synced_at' | 'sync_interval_minutes'>, force = false, nowMs = Date.now()) {
+  if (force || !source.last_synced_at) return true;
+  const lastSync = Date.parse(source.last_synced_at);
+  return !Number.isFinite(lastSync) || nowMs - lastSync >= (source.sync_interval_minutes ?? 60) * 60_000;
+}
+
 function normalizeUpstreamText(text: string) {
   return text.split(/\r?\n/).map((line) => {
     let value = line.trim().replace(/^\uFEFF/, '');
@@ -70,11 +76,7 @@ export async function syncRuleSources(env: Env, categoryId?: string, force = tru
     : env.DB.prepare('SELECT id, category_id, name, url, last_synced_at, sync_interval_minutes, source_type, geosite_name, geoip_name FROM category_sources WHERE enabled = 1');
   const sources = await query.all<SourceRecord>();
   const results: SyncResult[] = [];
-  const dueSources = (sources.results ?? []).filter((source) => {
-    if (force || !source.last_synced_at) return true;
-    const lastSync = Date.parse(source.last_synced_at);
-    return !Number.isFinite(lastSync) || Date.now() - lastSync >= (source.sync_interval_minutes ?? 60) * 60_000;
-  });
+  const dueSources = (sources.results ?? []).filter((source) => isSourceDue(source, force));
   for (const source of dueSources) results.push(await syncSource(env, source));
   return results;
 }

@@ -52,7 +52,7 @@ export function useDomainAdmin() {
         setError('');
         return;
       }
-      if (!response.ok) throw new Error('无法加载域名数据，请检查 D1 数据库绑定');
+      if (!response.ok) throw new Error('无法加载规则数据，请检查数据库连接');
       const payload = (await response.json()) as { data: RulesData; links: LinksByCategory };
       setData(payload.data);
       setLinks(payload.links);

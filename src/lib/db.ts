@@ -51,7 +51,7 @@ const defaultSettings: RuleSettings = {
   customIconPackNames: {},
 };
 
-let databaseReady: Promise<void> | undefined;
+const readyDatabases = new WeakMap<object, Promise<void>>();
 
 /**
  * Allows a newly deployed Worker to start with an empty D1 database. The
@@ -93,7 +93,9 @@ export function ensureDatabase(env: Env) {
       ('baseUrl', ''), ('policyName', ''), ('publicLinksEnabled', 'true'), ('tokenLinksEnabled', 'true'), ('customIconPackUrls', '[]'), ('customIconPackNames', '{}')`,
   ];
 
-  databaseReady ??= (async () => {
+  let databaseReady = readyDatabases.get(env.DB as object);
+  if (!databaseReady) {
+    databaseReady = (async () => {
     await env.DB.batch(statements.map((statement) => env.DB.prepare(statement)));
     await env.DB.prepare(`INSERT OR IGNORE INTO api_keys (id, note, key_hash, key_prefix, created_at)
       SELECT 'key_legacy', '迁移的 API Key', value, 'prk_legacy…', COALESCE((SELECT value FROM settings WHERE key = 'apiKeyCreatedAt'), ?)
@@ -127,7 +129,9 @@ export function ensureDatabase(env: Env) {
       env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_rules_source ON rules(source_id)'),
       env.DB.prepare('UPDATE categories SET public_links_enabled = 0 WHERE token_links_enabled = 1 AND public_links_enabled = 1'),
     ]);
-  })();
+    })();
+    readyDatabases.set(env.DB as object, databaseReady);
+  }
   return databaseReady;
 }
 

@@ -2,11 +2,11 @@ import { UiIcon } from './ui-icon';
 
 export function AboutPanel() {
   return <div className="page-stack unified-page">
-    <header className="page-title"><div><span className="eyebrow">ABOUT</span><h1>关于 Private Rules</h1><p>运行在 Cloudflare Workers 上的私有规则管理工具</p></div></header>
+    <header className="page-title"><div><span className="eyebrow">ABOUT</span><h1>关于 Private Rules</h1><p>操作简单、维护方便的私有自托管规则控制台，支持 Cloudflare Workers 和 Docker Compose 部署</p></div></header>
     <div className="about-grid">
       <section className="soft-card unified-card"><span className="metric-icon blue"><UiIcon name="rules"/></span><h2>集中维护</h2><p>按分类维护域名、关键词与 IP 规则，并按需组合上游来源</p></section>
       <section className="soft-card unified-card"><span className="metric-icon purple"><UiIcon name="links"/></span><h2>多端订阅</h2><p>统一生成 YAML、LIST、JSON 与纯地址文件，覆盖常用代理客户端</p></section>
-      <section className="soft-card unified-card"><span className="metric-icon green"><UiIcon name="database"/></span><h2>私有数据</h2><p>规则保存在自己的 D1 数据库中，并支持 JSON 完整备份</p></section>
+      <section className="soft-card unified-card"><span className="metric-icon green"><UiIcon name="database"/></span><h2>灵活部署</h2><p>可使用 Cloudflare Workers 与 D1，也可通过 Docker Compose 与 SQLite 自托管</p></section>
     </div>
     <section className="soft-card unified-card project-info-card">
       <div><span className="metric-icon cyan"><UiIcon name="info"/></span><span><h2>项目信息</h2><p>开源代码、更新记录与作者频道</p></span></div>
