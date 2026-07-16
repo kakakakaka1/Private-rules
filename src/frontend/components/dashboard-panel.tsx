@@ -9,7 +9,7 @@ const SORT_TITLE: Record<CategorySortKey, string> = { alpha: '名称', count: '�
 export function DashboardPanel({ data, onOpenCategory }: { data: RulesData; onOpenCategory: (category: RuleCategory) => void }) {
   const { value: sortKey, direction: sortDirection, setValue: setSortKey, setDirection: setSortDirection } = usePersistentSort('dashboard');
   const totalRules = data.categories.reduce((sum, category) => sum + (category.ruleCount ?? category.rules.length), 0);
-  const activeRules = data.categories.reduce((sum, category) => sum + (category.activeRuleCount ?? category.rules.filter((rule) => rule.enabled).length), 0);
+  const activeRules = data.categories.reduce((sum, category) => sum + (category.enabledRuleCount ?? category.rules.filter((rule) => rule.enabled).length), 0);
   const disabledRules = totalRules - activeRules;
   const recentCategories = sortCategoryEntries(data.categories.map((category) => ({ category, count: category.ruleCount ?? category.rules.length })), sortKey, sortDirection).map((entry) => entry.category);
   const metrics: { label: string; value: string; icon: IconName; tone: string }[] = [

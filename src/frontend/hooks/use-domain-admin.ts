@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ClientLink, DomainRule, DomainRuleType, GeoSourceSuggestion, ImportPreview, RulesData } from '../../types/domain-rules';
+import { UPSTREAM_RULE_PREVIEW_LIMIT } from '../../types/domain-rules';
 
 type LinksByCategory = Record<string, ClientLink[]>;
 export type ApiKeySummary = { id: string; note: string; keyPrefix: string; createdAt: string; lastUsedAt?: string };
@@ -91,6 +92,18 @@ export function useDomainAdmin() {
     [refresh],
   );
 
+  const loadRules = useCallback(async (options: { categoryId?: string; query?: string; source?: 'manual' | 'upstream' | 'url' | 'geo'; all?: boolean }, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    if (options.categoryId) params.set('categoryId', options.categoryId);
+    if (options.query) params.set('q', options.query);
+    if (options.source) params.set('source', options.source);
+    if (options.all) params.set('all', '1');
+    else params.set('limit', String(UPSTREAM_RULE_PREVIEW_LIMIT));
+    const response = await fetch(`/api/rules?${params.toString()}`, { signal });
+    if (!response.ok) throw new Error('规则加载失败');
+    return ((await response.json()) as { rules: DomainRule[] }).rules;
+  }, []);
+
   return {
     data,
     links,
@@ -114,16 +127,7 @@ export function useDomainAdmin() {
       if (!response.ok) throw new Error('Geo 数据索引加载失败');
       return ((await response.json()) as { results: GeoSourceSuggestion[] }).results;
     },
-    loadCategoryRules: async (categoryId: string, signal?: AbortSignal) => {
-      const response = await fetch(`/api/categories/${categoryId}/rules`, { signal });
-      if (!response.ok) throw new Error('完整规则加载失败');
-      return ((await response.json()) as { rules: DomainRule[] }).rules;
-    },
-    searchRules: async (query: string, signal?: AbortSignal) => {
-      const response = await fetch(`/api/rules/search?q=${encodeURIComponent(query)}`, { signal });
-      if (!response.ok) throw new Error('规则搜索失败');
-      return ((await response.json()) as { rules: DomainRule[] }).rules;
-    },
+    loadRules,
     addRule: (categoryId: string, input: { value: string; type?: DomainRuleType; note?: string }) =>
       mutate(`/api/categories/${categoryId}/rules`, { method: 'POST', body: JSON.stringify(input) }),
     updateRule: (categoryId: string, rule: DomainRule) =>

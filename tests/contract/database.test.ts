@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { D1DatabaseAdapter } from '../../src/infrastructure/database/d1/adapter';
 import { SqliteDatabaseAdapter } from '../../src/infrastructure/database/sqlite/adapter';
 import { applySqliteMigrations } from '../../src/infrastructure/database/sqlite/migrations';
-import { addRule, createCategory, deleteCategory, getBackupData, getRulesData, importRulesData, insertRule, updateCategory } from '../../src/lib/db';
+import { addRule, createCategory, deleteCategory, getBackupData, getRulesData, getRulesOverview, importRulesData, insertRule, listRules, updateCategory } from '../../src/lib/db';
 import { syncRuleSources } from '../../src/lib/sync';
 import type { Env } from '../../src/types';
 import type { DatabasePort } from '../../src/application/ports/database';
@@ -55,6 +55,24 @@ function contract(name: string, setup: () => Promise<{ database: DatabasePort; c
       expect(restoredCategory.sources?.find((item) => item.sourceType === 'url')).toMatchObject({ url: 'https://example.com/rules.list', lastStatus: 'pending', lastCount: 0 });
       expect(restoredCategory.sources?.find((item) => item.sourceType === 'geosite')).toMatchObject({ geositeName: 'telegram', url: 'https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/telegram' });
       expect(restoredCategory.sources?.find((item) => item.sourceType === 'geoip')).toMatchObject({ geoipName: 'telegram', url: 'https://raw.githubusercontent.com/Loyalsoldier/geoip/release/text/telegram.txt' });
+    });
+    it('keeps the admin overview to 1000 mirrored rules and loads larger sets on demand', async () => {
+      const data = await createCategory(env, { name: `${name}-large-preview`, sourceUrls: ['https://example.com/large.list'] });
+      const category = data.categories.find((item) => item.name === `${name}-large-preview`)!;
+      const source = category.sources![0];
+      const timestamp = new Date().toISOString();
+      const insertSql = 'INSERT INTO rules (id, category_id, value, type, display_type, note, enabled, sort_order, source_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      const statements = Array.from({ length: 1005 }, (_, index) => env.DB.prepare(insertSql).bind(
+        `${name}-large-${index}`, category.id, `speed-${index}.example`, 'DOMAIN-SUFFIX', '', '', 1, index, source.id, timestamp, timestamp,
+      ));
+      for (let offset = 0; offset < statements.length; offset += 100) await env.DB.batch(statements.slice(offset, offset + 100));
+
+      const overviewCategory = (await getRulesOverview(env)).categories.find((item) => item.id === category.id)!;
+      expect(overviewCategory.ruleCount).toBe(1005);
+      expect(overviewCategory.enabledRuleCount).toBe(1005);
+      expect(overviewCategory.rules).toHaveLength(1000);
+      expect(await listRules(env, { categoryId: category.id, source: 'upstream' })).toHaveLength(1000);
+      expect(await listRules(env, { query: 'speed', limit: 0 })).toHaveLength(1005);
     });
     it('cancels a stale source sync when its category is deleted during download', async () => {
       const data = await createCategory(env, { name: `${name}-stale-sync`, sourceUrls: ['https://example.com/rules.list'] });

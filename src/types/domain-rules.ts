@@ -1,3 +1,5 @@
+export const UPSTREAM_RULE_PREVIEW_LIMIT = 1000;
+
 export type DomainRuleType =
   | 'DOMAIN'
   | 'DOMAIN-SUFFIX'
@@ -22,6 +24,7 @@ export type DomainRule = {
   updatedAt: string;
   sourceId?: string;
   sourceName?: string;
+  sourceType?: 'url' | 'geosite' | 'geoip';
 };
 
 export type RuleSource = {
@@ -58,8 +61,6 @@ export type RuleCategory = {
   enabled?: boolean;
   sortOrder?: number;
   rules: DomainRule[];
-  ruleCount?: number;
-  activeRuleCount?: number;
   createdAt?: string;
   updatedAt: string;
   publicLinksEnabled?: boolean;
@@ -67,6 +68,11 @@ export type RuleCategory = {
   sources?: RuleSource[];
   lastSyncedAt?: string;
   syncIntervalMinutes?: number;
+  ruleCount?: number;
+  enabledRuleCount?: number;
+  manualRuleCount?: number;
+  urlRuleCount?: number;
+  geoRuleCount?: number;
 };
 
 export type RuleSettings = {

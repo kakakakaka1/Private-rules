@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 import type { AppVariables, Env } from '../types';
+import { UPSTREAM_RULE_PREVIEW_LIMIT } from '../types/domain-rules';
 import { APP_VERSION } from '../version';
 import { apiKeyConfigured, apiKeyStatus, authConfigured, checkPassword, createApiKey, createSession, deleteApiKey, destroySession, isAuthenticated, requireAuth, requireSessionAuth, safeFileName, tokenMatches, updateApiKeyNote } from '../lib/auth';
 import {
@@ -10,12 +11,12 @@ import {
   deleteCategory,
   deleteRule,
   getBackupData,
-  getCategoryRules,
+  getRulesOverview,
   getRulesData,
   importRulesData,
   insertRule,
+  listRules,
   saveSettings,
-  searchRules,
   updateCategory,
   updateRule,
 } from '../lib/db';
@@ -139,54 +140,64 @@ app.patch('/api/api-keys/:keyId', requireSessionAuth, async (c) => {
   return json({ updated: true });
 });
 
-app.get('/api/categories', requireAuth, async (c) => json(withLinks(c, await getRulesData(c.env, { upstreamPreviewLimit: 30 }))));
+app.get('/api/categories', requireAuth, async (c) => json(withLinks(c, await getRulesOverview(c.env))));
 
-app.get('/api/categories/:id/rules', requireAuth, async (c) => json({ rules: await getCategoryRules(c.env, c.req.param('id')) }));
-
-app.get('/api/rules/search', requireAuth, async (c) => json({ rules: await searchRules(c.env, c.req.query('q') ?? '') }));
+app.get('/api/rules', requireAuth, async (c) => {
+  const source = c.req.query('source');
+  if (source && !['manual', 'upstream', 'url', 'geo'].includes(source)) return error('规则来源筛选无效。', 400);
+  const requestedLimit = Number(c.req.query('limit') ?? String(UPSTREAM_RULE_PREVIEW_LIMIT));
+  const limit = c.req.query('all') === '1' ? 0 : Number.isFinite(requestedLimit) ? requestedLimit : UPSTREAM_RULE_PREVIEW_LIMIT;
+  return json({ rules: await listRules(c.env, {
+    categoryId: c.req.query('categoryId') || undefined,
+    query: c.req.query('q') || undefined,
+    source: source as 'manual' | 'upstream' | 'url' | 'geo' | undefined,
+    limit,
+  }) });
+});
 
 app.get('/api/geo/search', requireAuth, async (c) => json({ results: await searchGeoSources(c.req.query('q') ?? '') }));
 
 app.post('/api/categories', requireAuth, async (c) => {
   const input = await c.req.json<{ name?: string; sourceUrls?: string[]; geositeNames?: string[]; geoipNames?: string[]; userAgent?: string }>().catch(() => ({} as { name?: string; sourceUrls?: string[]; geositeNames?: string[]; geoipNames?: string[]; userAgent?: string }));
-  const data = await createCategory(c.env, input);
+  let data = await createCategory(c.env, input);
   if (input.sourceUrls?.length || input.geositeNames?.length || input.geoipNames?.length) {
     const created = data.categories.find((category) => category.name === input.name) ?? [...data.categories].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
     if (created) await syncRuleSources(c.env, created.id);
+    data = await getRulesOverview(c.env);
   }
-  return json({ created: true }, { status: 201 });
+  return json(withLinks(c, data), { status: 201 });
 });
 
 app.patch('/api/categories/:id', requireAuth, async (c) => {
-  await updateCategory(c.env, c.req.param('id'), await c.req.json().catch(() => ({})));
-  return json({ updated: true });
+  const data = await updateCategory(c.env, c.req.param('id'), await c.req.json().catch(() => ({})));
+  return json(withLinks(c, data));
 });
 
 app.delete('/api/categories/:id', requireAuth, async (c) => {
-  await deleteCategory(c.env, c.req.param('id'));
-  return json({ deleted: true });
+  const data = await deleteCategory(c.env, c.req.param('id'));
+  return json(withLinks(c, data));
 });
 
 app.post('/api/categories/:id/rules', requireAuth, async (c) => {
-  await addRule(c.env, c.req.param('id'), await c.req.json().catch(() => ({})));
-  return json({ created: true }, { status: 201 });
+  const data = await addRule(c.env, c.req.param('id'), await c.req.json().catch(() => ({})));
+  return json(withLinks(c, data), { status: 201 });
 });
 
 app.patch('/api/categories/:id/rules/:ruleId', requireAuth, async (c) => {
-  await updateRule(c.env, c.req.param('id'), c.req.param('ruleId'), await c.req.json().catch(() => ({})));
-  return json({ updated: true });
+  const data = await updateRule(c.env, c.req.param('id'), c.req.param('ruleId'), await c.req.json().catch(() => ({})));
+  return json(withLinks(c, data));
 });
 
 app.delete('/api/categories/:id/rules/:ruleId', requireAuth, async (c) => {
-  await deleteRule(c.env, c.req.param('id'), c.req.param('ruleId'));
-  return json({ deleted: true });
+  const data = await deleteRule(c.env, c.req.param('id'), c.req.param('ruleId'));
+  return json(withLinks(c, data));
 });
 
 app.post('/api/categories/:id/rules/batch', requireAuth, async (c) => {
   const body = await c.req.json<{ ruleIds?: string[]; action?: 'enable' | 'disable' | 'delete' }>().catch(() => ({})) as { ruleIds?: string[]; action?: 'enable' | 'disable' | 'delete' };
   if (!body.action || !['enable', 'disable', 'delete'].includes(body.action)) return error('批量操作无效。', 400);
-  await batchUpdateRules(c.env, c.req.param('id'), body.ruleIds ?? [], body.action);
-  return json({ updated: true });
+  const data = await batchUpdateRules(c.env, c.req.param('id'), body.ruleIds ?? [], body.action);
+  return json(withLinks(c, data));
 });
 
 app.post('/api/categories/:id/rules/bulk-import', requireAuth, async (c) => {
@@ -195,40 +206,42 @@ app.post('/api/categories/:id/rules/bulk-import', requireAuth, async (c) => {
     text?: string;
     confirm?: boolean;
   };
-  const category = await c.env.DB.prepare('SELECT id FROM categories WHERE id = ?').bind(categoryId).first<{ id: string }>();
+  const data = await getRulesData(c.env);
+  const category = data.categories.find((item) => item.id === categoryId);
   if (!category) return error('分类不存在。', 404);
-  const preview = parseBulkImport(body.text ?? '', await getCategoryRules(c.env, categoryId));
+  const preview = parseBulkImport(body.text ?? '', category.rules);
   if (!body.confirm) return json({ preview });
   for (const [index, rule] of preview.rules.entries()) {
     await insertRule(c.env, categoryId, rule, Date.now() + index);
   }
-  return json({ preview });
+  const next = await getRulesOverview(c.env);
+  return json({ preview, ...withLinks(c, next) });
 });
 
 app.get('/api/settings', requireAuth, async (c) => {
-  const data = await getRulesData(c.env);
+  const data = await getRulesOverview(c.env);
   return json({ settings: data.settings, meta: data.meta });
 });
 
 app.patch('/api/settings', requireAuth, async (c) => {
   const input = await c.req.json().catch(() => ({}));
   await saveSettings(c.env, input);
-  return json({ updated: true });
+  return json(withLinks(c, await getRulesOverview(c.env)));
 });
 
 app.get('/api/links', requireAuth, async (c) => {
-  const data = await getRulesData(c.env);
+  const data = await getRulesOverview(c.env);
   return json({ links: linksByCategory(data, externalRequestUrl(c), c.env.RULE_TOKEN) });
 });
 
 app.post('/api/sync', requireAuth, async (c) => {
   const results = await syncRuleSources(c.env);
-  return json({ results });
+  return json({ results, ...withLinks(c, await getRulesOverview(c.env)) });
 });
 
 app.post('/api/categories/:id/sync', requireAuth, async (c) => {
   const results = await syncRuleSources(c.env, c.req.param('id'));
-  return json({ results });
+  return json({ results, ...withLinks(c, await getRulesOverview(c.env)) });
 });
 
 app.get('/api/data', requireAuth, async (c) => json(await getBackupData(c.env)));
@@ -236,8 +249,7 @@ app.get('/api/data', requireAuth, async (c) => json(await getBackupData(c.env)))
 app.put('/api/data', requireAuth, async (c) => {
   const data = await c.req.json().catch(() => null);
   if (!data?.categories || !data?.settings) return error('备份 JSON 格式不正确。');
-  await importRulesData(c.env, data);
-  return json({ imported: true });
+  return json(withLinks(c, await importRulesData(c.env, data)));
 });
 
 async function subscription(c: AppContext, file: string, access: 'public' | 'token') {

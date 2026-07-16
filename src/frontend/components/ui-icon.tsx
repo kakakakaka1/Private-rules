@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type IconName = 'home' | 'rules' | 'domain' | 'links' | 'settings' | 'info' | 'download' | 'upload' | 'database' | 'pulse' | 'clock' | 'chevron' | 'chevronRight' | 'arrowLeft' | 'more' | 'manage' | 'activity' | 'plus' | 'close' | 'check' | 'logout' | 'file' | 'copy' | 'search' | 'refresh' | 'restore' | 'sync' | 'trash' | 'edit' | 'key';
+export type IconName = 'home' | 'rules' | 'domain' | 'links' | 'settings' | 'info' | 'download' | 'upload' | 'database' | 'pulse' | 'clock' | 'chevron' | 'chevronRight' | 'arrowLeft' | 'more' | 'manage' | 'activity' | 'plus' | 'expand' | 'close' | 'check' | 'logout' | 'file' | 'copy' | 'search' | 'refresh' | 'restore' | 'sync' | 'trash' | 'edit' | 'key';
 
 const paths: Record<IconName, ReactNode> = {
   home: <><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></>,
@@ -21,6 +21,7 @@ const paths: Record<IconName, ReactNode> = {
   manage: <><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="m7.5 8 1.4 1.4L11.5 7M13.5 8.5h3M7.5 14l1.4 1.4 2.6-2.4M13.5 14.5h3"/></>,
   activity: <path d="M3 12h4l2-6 4 12 2-6h6"/>,
   plus: <path d="M12 5v14M5 12h14"/>,
+  expand: <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/><path d="m3 8 5-5M21 8l-5-5M3 16l5 5M21 16l-5 5"/></>,
   close: <><path d="M6 6l12 12M18 6 6 18"/></>,
   check: <path d="m5 12 4 4L19 6"/>,
   logout: <><path d="M10 4H5v16h5"/><path d="M14 8l4 4-4 4M8 12h10"/></>,

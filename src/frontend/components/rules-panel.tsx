@@ -7,6 +7,7 @@ import { copyText } from '../lib/clipboard';
 import { CategoryIcon } from './category-icon';
 import { IconPicker } from './icon-picker';
 import { UiIcon } from './ui-icon';
+import { UPSTREAM_RULE_PREVIEW_LIMIT } from '../../types/domain-rules';
 import { SortToolbar, sortCategoryEntries, usePersistentSort } from './sort-toolbar';
 import { validateCategoryName } from '../../lib/slug';
 
@@ -18,15 +19,56 @@ const SYNC_INTERVALS = [
   { value: 360, label: '每 6 小时' }, { value: 720, label: '每 12 小时' }, { value: 1440, label: '每天' },
 ];
 
+type CategorizedRule = DomainRule & { category: RuleCategory };
+type RuleGroupId = 'manual' | 'url' | 'geo';
+
+function RuleFolder({ api, category, count, previewRules, groupId, searching, onSelectCategory }: {
+  api: ReturnType<typeof useDomainAdmin>;
+  category: RuleCategory;
+  count: number;
+  previewRules: CategorizedRule[];
+  groupId: RuleGroupId;
+  searching: boolean;
+  onSelectCategory: (id: string) => void;
+}) {
+  const [fullRules, setFullRules] = useState<DomainRule[] | null>(null);
+  const [loadingAll, setLoadingAll] = useState(false);
+  const visibleRules = searching ? previewRules : (fullRules ?? previewRules.slice(0, UPSTREAM_RULE_PREVIEW_LIMIT));
+
+  useEffect(() => { setFullRules(null); }, [category.updatedAt]);
+
+  async function expandAll() {
+    setLoadingAll(true);
+    try { setFullRules(await api.loadRules({ categoryId: category.id, source: groupId, all: true })); }
+    finally { setLoadingAll(false); }
+  }
+
+  return <details className="category-rule-folder animated-disclosure" open={searching || undefined} onToggle={(event) => {
+    if (!(event.currentTarget as HTMLDetailsElement).open && fullRules) setFullRules(null);
+  }}>
+    <summary><span><CategoryIcon icon={category.icon} name={category.name} size={38}/><strong>{category.name}</strong></span><span>{count} 条<UiIcon name="chevron" size={15}/></span></summary>
+    <div className="all-rules-table compact-group-table">{visibleRules.map((rule) => groupId === 'manual'
+      ? <button className="all-rule-row" key={rule.id} onClick={() => onSelectCategory(category.id)}><span className={`rule-state ${rule.enabled ? 'on' : ''}`}/><span className="rule-main"><strong>{rule.value}</strong><small>{getFriendlyRuleType(rule)} · 自定义规则{rule.note ? ` · ${rule.note}` : ''}</small></span><UiIcon name="chevronRight" size={18}/></button>
+      : <div className="all-rule-row readonly-summary-row" key={rule.id}><span className={`rule-state ${rule.enabled ? 'on' : ''}`}/><span className="rule-main"><strong>{rule.value}</strong><small>{getFriendlyRuleType(rule)} · 来自 {rule.sourceName}</small></span><span className="readonly-badge">只读</span></div>)}</div>
+    {!searching && count > visibleRules.length && <button className="rules-expand-notice" disabled={loadingAll} onClick={expandAll}>
+      <span className="rules-expand-icon"><UiIcon name={loadingAll ? 'sync' : 'expand'} size={19}/></span>
+      <span className="rules-expand-copy"><strong>{loadingAll ? '正在加载完整规则…' : '展开全部规则'}</strong><small>当前显示 {visibleRules.length} 条，共 {count} 条</small></span>
+      <span className="rules-expand-action">{loadingAll ? '加载中' : '查看全部'}<UiIcon name="chevronRight" size={16}/></span>
+    </button>}
+  </details>;
+}
+
 export function RulesPanel({ api, categories, category, onSelectCategory, onToast }: Props) {
   const [value, setValue] = useState('');
   const [note, setNote] = useState('');
   const [type, setType] = useState<DomainRuleType | ''>('');
   const [query, setQuery] = useState('');
   const [allRulesQuery, setAllRulesQuery] = useState('');
-  const [allRulesSearchResults, setAllRulesSearchResults] = useState<DomainRule[] | null>(null);
-  const [expandedCategoryRules, setExpandedCategoryRules] = useState<Record<string, DomainRule[]>>({});
+  const [globalSearchRules, setGlobalSearchRules] = useState<DomainRule[]>([]);
+  const [searchingAllRules, setSearchingAllRules] = useState(false);
   const [expandedUpstreamRules, setExpandedUpstreamRules] = useState<DomainRule[] | null>(null);
+  const [loadingAllUpstreamRules, setLoadingAllUpstreamRules] = useState(false);
+  const [upstreamRulesOpen, setUpstreamRulesOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -73,11 +115,7 @@ export function RulesPanel({ api, categories, category, onSelectCategory, onToas
   const customPacks = api.data?.settings.customIconPackUrls ?? [];
   const customPackNames = api.data?.settings.customIconPackNames ?? {};
 
-  const detailRules = useMemo(() => category ? [
-    ...category.rules.filter((rule) => !rule.sourceId),
-    ...(expandedUpstreamRules ?? category.rules.filter((rule) => rule.sourceId)),
-  ] : [], [category, expandedUpstreamRules]);
-  const filteredRules = useMemo(() => detailRules.filter((rule) => `${rule.value} ${rule.note ?? ''} ${rule.sourceName ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())), [detailRules, query]);
+  const filteredRules = useMemo(() => category?.rules.filter((rule) => `${rule.value} ${rule.note ?? ''} ${rule.sourceName ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())) ?? [], [category, query]);
   const manualRules = filteredRules.filter((rule) => !rule.sourceId);
   const hasCustomRules = Boolean(category?.rules.some((rule) => !rule.sourceId));
   const sortedManualRules = useMemo(() => [...manualRules].sort((a, b) => Number(b.enabled) - Number(a.enabled) || (a.sortOrder ?? 0) - (b.sortOrder ?? 0)), [manualRules]);
@@ -87,12 +125,19 @@ export function RulesPanel({ api, categories, category, onSelectCategory, onToas
   const allCompatibleRulesSelected = compatibleManualRules.length > 0 && compatibleManualRules.every((rule) => selectedRuleIds.includes(rule.id));
   const editingRule = category?.rules.find((rule) => rule.id === editingRuleId && !rule.sourceId);
   const upstreamRules = filteredRules.filter((rule) => Boolean(rule.sourceId));
-  const allRules = useMemo(() => categories.flatMap((item) => item.rules.map((rule) => ({ ...rule, category: item }))), [categories]);
+  const visibleUpstreamRules = expandedUpstreamRules
+    ? expandedUpstreamRules.filter((rule) => `${rule.value} ${rule.note ?? ''} ${rule.sourceName ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+    : upstreamRules;
+  const allRules = useMemo<CategorizedRule[]>(() => categories.flatMap((item) => item.rules.map((rule) => ({ ...rule, category: item }))), [categories]);
   const normalizedAllRulesQuery = allRulesQuery.trim().toLowerCase();
-  const searchedAllRules = useMemo(() => !normalizedAllRulesQuery ? allRules : (allRulesSearchResults ?? []).flatMap((rule) => {
-    const matchedCategory = categories.find((item) => item.id === rule.categoryId);
-    return matchedCategory ? [{ ...rule, category: matchedCategory }] : [];
-  }), [allRules, allRulesSearchResults, categories, normalizedAllRulesQuery]);
+  const searchedAllRules = useMemo<CategorizedRule[]>(() => {
+    if (!normalizedAllRulesQuery) return allRules;
+    const categoryById = new Map(categories.map((item) => [item.id, item]));
+    return globalSearchRules.flatMap((rule) => {
+      const resultCategory = rule.categoryId ? categoryById.get(rule.categoryId) : undefined;
+      return resultCategory ? [{ ...rule, category: resultCategory }] : [];
+    });
+  }, [allRules, categories, globalSearchRules, normalizedAllRulesQuery]);
   const newNameError = validateCategoryName(newName);
   const editNameError = validateCategoryName(editName);
   const categorySourceMode = !category?.sources?.length
@@ -105,22 +150,26 @@ export function RulesPanel({ api, categories, category, onSelectCategory, onToas
 
   useEffect(() => {
     setEditing(false); setConfirmDelete(false); setQuery(''); setManagingRules(false); setSelectedRuleIds([]); setOpenRuleMenuId(null); setEditingRuleId(null); setPendingDeleteRuleIds([]);
-    setExpandedUpstreamRules(null);
     setEditSources(''); setEditGeosites([]); setEditGeoips([]); setEditGeositeQuery(''); setEditGeositeResults([]);
-  }, [category?.id]);
+    setExpandedUpstreamRules(null);
+    setUpstreamRulesOpen(false);
+  }, [category?.id, category?.updatedAt]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    if (!normalizedAllRulesQuery) {
-      setAllRulesSearchResults(null);
-      return () => controller.abort();
+    if (category || !normalizedAllRulesQuery) {
+      setGlobalSearchRules([]);
+      setSearchingAllRules(false);
+      return;
     }
+    const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      try { setAllRulesSearchResults(await api.searchRules(normalizedAllRulesQuery, controller.signal)); }
-      catch (cause) { if (!(cause instanceof DOMException && cause.name === 'AbortError')) setAllRulesSearchResults([]); }
+      setSearchingAllRules(true);
+      try { setGlobalSearchRules(await api.loadRules({ query: allRulesQuery.trim(), all: true }, controller.signal)); }
+      catch (cause) { if (!(cause instanceof DOMException && cause.name === 'AbortError')) setGlobalSearchRules([]); }
+      finally { if (!controller.signal.aborted) setSearchingAllRules(false); }
     }, 280);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [normalizedAllRulesQuery]);
+  }, [allRulesQuery, api.loadRules, category, normalizedAllRulesQuery]);
 
   useEffect(() => {
     if (!managingRules) { setDockSpaceConstrained(false); return; }
@@ -233,17 +282,18 @@ export function RulesPanel({ api, categories, category, onSelectCategory, onToas
     const sources = categories.flatMap((item) => item.sources ?? []);
     const sourceCounts = { all: sources.length, url: sources.filter((source) => source.sourceType === 'url' || !source.sourceType).length, geosite: sources.filter((source) => source.sourceType === 'geosite').length, geoip: sources.filter((source) => source.sourceType === 'geoip').length };
     const sourceTypeById = new Map(sources.map((source) => [source.id, source.sourceType ?? 'url']));
-    const ruleGroups = [
-      { id: 'manual', label: '自定义规则', description: '可进入规则详情继续编辑', rules: searchedAllRules.filter((rule) => !rule.sourceId) },
-      { id: 'url', label: '上游订阅', description: '来自远程订阅链接的只读镜像', rules: searchedAllRules.filter((rule) => rule.sourceId && sourceTypeById.get(rule.sourceId) === 'url') },
-      { id: 'geo', label: 'Geo 数据库', description: '来自 GeoSite 与 GeoIP 的只读镜像', rules: searchedAllRules.filter((rule) => rule.sourceId && sourceTypeById.get(rule.sourceId) !== 'url') },
+    const groupCount = (id: RuleGroupId) => normalizedAllRulesQuery
+      ? undefined
+      : categories.reduce((sum, item) => sum + (id === 'manual' ? item.manualRuleCount ?? 0 : id === 'url' ? item.urlRuleCount ?? 0 : item.geoRuleCount ?? 0), 0);
+    const ruleGroups: Array<{ id: RuleGroupId; label: string; description: string; rules: CategorizedRule[]; count: number }> = [
+      { id: 'manual', label: '自定义规则', description: '可进入规则详情继续编辑', rules: searchedAllRules.filter((rule) => !rule.sourceId), count: groupCount('manual') ?? searchedAllRules.filter((rule) => !rule.sourceId).length },
+      { id: 'url', label: '上游订阅', description: '来自远程订阅链接的只读镜像', rules: searchedAllRules.filter((rule) => rule.sourceId && sourceTypeById.get(rule.sourceId) === 'url'), count: groupCount('url') ?? searchedAllRules.filter((rule) => rule.sourceId && sourceTypeById.get(rule.sourceId) === 'url').length },
+      { id: 'geo', label: 'Geo 数据库', description: '来自 GeoSite 与 GeoIP 的只读镜像', rules: searchedAllRules.filter((rule) => rule.sourceId && sourceTypeById.get(rule.sourceId) !== 'url'), count: groupCount('geo') ?? searchedAllRules.filter((rule) => rule.sourceId && sourceTypeById.get(rule.sourceId) !== 'url').length },
     ];
-    const groupedByCategory = (rules: typeof allRules, groupId: string) => categories.map((item) => {
-      const cacheKey = `${groupId}:${item.id}`;
-      const fullRules = expandedCategoryRules[cacheKey]?.map((rule) => ({ ...rule, category: item }));
-      const candidateRules = fullRules ?? rules;
-      const matched = candidateRules.filter((rule) => rule.category.id === item.id && (groupId === 'manual' ? !rule.sourceId : groupId === 'url' ? rule.sourceId && sourceTypeById.get(rule.sourceId) === 'url' : rule.sourceId && sourceTypeById.get(rule.sourceId) !== 'url'));
-      return { category: item, count: matched.length, rules: matched, cacheKey, expanded: Boolean(fullRules) };
+    const groupedByCategory = (group: typeof ruleGroups[number]) => categories.map((item) => {
+      const matched = group.rules.filter((rule) => rule.category.id === item.id);
+      const count = normalizedAllRulesQuery ? matched.length : group.id === 'manual' ? item.manualRuleCount ?? matched.length : group.id === 'url' ? item.urlRuleCount ?? matched.length : item.geoRuleCount ?? matched.length;
+      return { category: item, count, rules: matched };
     }).filter((entry) => entry.count);
     const sortedCategories = sortCategoryEntries(categories.map((item) => ({ category: item, count: item.ruleCount ?? item.rules.length })), categorySortKey, categorySortDirection).map((entry) => entry.category);
     return <div className="page-stack unified-page">
@@ -268,7 +318,8 @@ export function RulesPanel({ api, categories, category, onSelectCategory, onToas
       <section className="soft-card unified-card"><div className="section-inline sort-section-head"><div><h2>规则分类</h2><p>点击规则进入来源和同步管理</p></div><SortToolbar value={categorySortKey} direction={categorySortDirection} onChange={(key, direction) => { setCategorySortKey(key); setCategorySortDirection(direction); }}/></div><div className="category-summary-grid sort-content-transition" key={`categories-${categorySortKey}-${categorySortDirection}`}>{sortedCategories.map((item) => <button className="category-summary-card" key={item.id} onClick={() => onSelectCategory(item.id)}><CategoryIcon icon={item.icon} name={item.name}/><span><strong data-no-translate>{item.name}</strong>{item.sources?.length ? <small>{item.sources.length} 个上游 · {item.lastSyncedAt ? `同步于 ${new Date(item.lastSyncedAt).toLocaleString('zh-CN')}` : '等待同步'}</small> : <small data-no-translate={Boolean(item.description)}>{item.description || '手动维护'}</small>}</span><span className="category-count">{item.ruleCount ?? item.rules.length}</span><UiIcon name="chevronRight" size={19}/></button>)}</div></section>
       <section className="soft-card unified-card grouped-rules-section">
         <div className="all-rules-header"><div><h2>所有规则</h2><p>按来源与分类折叠，展开后查看具体规则</p></div><label className="search-box all-rules-search"><UiIcon name="search" size={18}/><input aria-label="搜索域名、关键词、IP、类型、来源或分类" placeholder="搜索域名、关键词、IP、类型、来源或分类" value={allRulesQuery} onChange={(event) => setAllRulesQuery(event.target.value)}/></label></div>
-        <div className="rule-source-groups sort-content-transition">{ruleGroups.map((group) => <details className={`rule-source-group animated-disclosure ${group.id}`} open={normalizedAllRulesQuery && group.rules.length > 0 ? true : undefined} key={group.id}><summary><span><UiIcon name={group.id === 'manual' ? 'edit' : group.id === 'url' ? 'links' : 'database'} size={19}/><span><strong>{group.label}</strong><small>{group.description}</small></span></span><span><strong>{group.rules.length}</strong> 条<UiIcon name="chevron" size={16}/></span></summary><div className="category-rule-folders">{groupedByCategory(group.rules, group.id).map((entry) => <details className="category-rule-folder animated-disclosure" open={Boolean(normalizedAllRulesQuery) || undefined} key={`${group.id}-${entry.category.id}`} onToggle={(event) => { if (!event.currentTarget.open) setExpandedCategoryRules((current) => { const next = { ...current }; delete next[entry.cacheKey]; return next; }); }}><summary><span><CategoryIcon icon={entry.category.icon} name={entry.category.name} size={38}/><strong>{entry.category.name}</strong></span><span>{entry.expanded ? entry.count : Math.min(entry.count, 30)} 条<UiIcon name="chevron" size={15}/></span></summary><div className="all-rules-table compact-group-table">{entry.rules.map((rule) => group.id === 'manual' ? <button className="all-rule-row" key={rule.id} onClick={() => onSelectCategory(rule.category.id)}><span className={`rule-state ${rule.enabled ? 'on' : ''}`}/><span className="rule-main"><strong>{rule.value}</strong><small>{getFriendlyRuleType(rule)} · 自定义规则{rule.note ? ` · ${rule.note}` : ''}</small></span><UiIcon name="chevronRight" size={18}/></button> : <div className="all-rule-row readonly-summary-row" key={rule.id}><span className={`rule-state ${rule.enabled ? 'on' : ''}`}/><span className="rule-main"><strong>{rule.value}</strong><small>{getFriendlyRuleType(rule)} · 来自 {rule.sourceName}</small></span><span className="readonly-badge">只读</span></div>)}{!normalizedAllRulesQuery && group.id !== 'manual' && !entry.expanded && (entry.category.ruleCount ?? entry.category.rules.length) > entry.rules.length && <button className="all-rule-row" onClick={async () => { const rules = await api.loadCategoryRules(entry.category.id); setExpandedCategoryRules((current) => ({ ...current, [entry.cacheKey]: rules })); }}><span className="rule-main"><strong>展开全部规则</strong><small>按需加载该分类的完整上游规则</small></span><UiIcon name="chevronRight" size={18}/></button>}</div></details>)}{!group.rules.length && <div className="empty-state compact-empty"><span>{normalizedAllRulesQuery ? '没有匹配规则' : `暂无${group.label}`}</span></div>}</div></details>)}</div>
+        {searchingAllRules && <p className="rules-search-status">正在搜索全部规则…</p>}
+        <div className="rule-source-groups sort-content-transition">{ruleGroups.map((group) => <details className={`rule-source-group animated-disclosure ${group.id}`} open={normalizedAllRulesQuery && group.count > 0 ? true : undefined} key={group.id}><summary><span><UiIcon name={group.id === 'manual' ? 'edit' : group.id === 'url' ? 'links' : 'database'} size={19}/><span><strong>{group.label}</strong><small>{group.description}</small></span></span><span><strong>{group.count}</strong> 条<UiIcon name="chevron" size={16}/></span></summary><div className="category-rule-folders">{groupedByCategory(group).map((entry) => <RuleFolder api={api} category={entry.category} count={entry.count} previewRules={entry.rules} groupId={group.id} searching={Boolean(normalizedAllRulesQuery)} onSelectCategory={onSelectCategory} key={`${group.id}-${entry.category.id}`}/>)}{!group.count && <div className="empty-state compact-empty"><span>{normalizedAllRulesQuery ? '没有匹配规则' : `暂无${group.label}`}</span></div>}</div></details>)}</div>
       </section>
     </div>;
   }
@@ -291,6 +342,11 @@ export function RulesPanel({ api, categories, category, onSelectCategory, onToas
   }
   async function removeCategory() { await api.deleteCategory(currentCategory.id); onSelectCategory(''); setConfirmDelete(false); onToast('分类已删除'); }
   async function syncCategory() { setSyncing(true); try { await api.syncCategory(currentCategory.id); onToast('该分类的上游规则已同步'); } finally { setSyncing(false); } }
+  async function expandAllUpstreamRules() {
+    setLoadingAllUpstreamRules(true);
+    try { setExpandedUpstreamRules(await api.loadRules({ categoryId: currentCategory.id, source: 'upstream', all: true })); }
+    finally { setLoadingAllUpstreamRules(false); }
+  }
   function openEditor() { const urlSource = (currentCategory.sources ?? []).find((source) => source.sourceType === 'url' || !source.sourceType); setEditName(currentCategory.name); setEditDescription(currentCategory.description ?? ''); setEditIcon(currentCategory.icon ?? ''); setEditSources((currentCategory.sources ?? []).filter((source) => source.sourceType === 'url' || !source.sourceType).map((source) => source.url).join('\n')); setEditGeosites((currentCategory.sources ?? []).filter((source) => source.sourceType === 'geosite' && source.geositeName).map((source) => source.geositeName!)); setEditGeoips((currentCategory.sources ?? []).filter((source) => source.sourceType === 'geoip' && source.geoipName).map((source) => source.geoipName!)); setEditGeositeQuery(''); setEditGeositeResults([]); setEditSyncInterval(currentCategory.syncIntervalMinutes ?? 60); setEditUserAgent(urlSource?.userAgent ?? DEFAULT_USER_AGENT); setEditing(true); }
 
   return <div className="page-stack unified-page">
@@ -304,7 +360,7 @@ export function RulesPanel({ api, categories, category, onSelectCategory, onToas
       <IconPicker value={editIcon} name={editName} customPackUrls={customPacks} customPackNames={customPackNames} onChange={setEditIcon}/><div className="builder-submit"><span>{categorySourceMode === 'manual' ? '保存规则信息不会添加上游来源' : '保存后可随时同步最新规则'}</span><button className="primary-action" disabled={Boolean(editNameError) || (categorySourceMode === 'geo' && !editGeosites.length && !editGeoips.length)} onClick={editCategory}>保存规则配置</button></div>
     </section></div>, document.body)}
     {confirmDelete && createPortal(<div className="rules-dialog-backdrop delete-dialog-backdrop" onMouseDown={() => setConfirmDelete(false)}><section className="rule-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-rule-title" onMouseDown={(event) => event.stopPropagation()}><span className="action-dialog-icon red"><UiIcon name="trash" size={24}/></span><div><h2 id="delete-rule-title">删除规则 {category.name}</h2><p>将永久删除该规则、上游来源和其中的 {category.ruleCount ?? category.rules.length} 条内容，此操作无法撤销</p></div><div className="action-dialog-actions"><button onClick={() => setConfirmDelete(false)}>取消</button><button className="danger-action icon-action" onClick={removeCategory}><UiIcon name="trash" size={17}/>确认删除</button></div></section></div>, document.body)}
-    {!!category.sources?.length && <section className="soft-card unified-card source-panel"><div className="section-inline"><div><h2>上游同步</h2><p>{SYNC_INTERVALS.find((item) => item.value === (category.syncIntervalMinutes ?? 60))?.label ?? `每 ${category.syncIntervalMinutes ?? 60} 分钟`}自动更新，镜像规则保持只读</p></div><button className="primary-action icon-action sync-action" disabled={syncing} onClick={syncCategory}><UiIcon name="sync" size={18}/>{syncing ? '正在同步…' : '同步上游'}</button></div><div className="source-list">{category.sources.map((source) => <div className="source-row" key={source.id}><span className={`source-status ${source.lastStatus ?? 'pending'}`}/><span><strong>{source.name}</strong><small>{source.sourceType === 'geoip' ? `geoip:${source.geoipName}` : source.sourceType === 'geosite' ? `geosite:${source.geositeName}` : source.url}</small></span><span><strong>{source.lastCount ?? 0}</strong><small>条规则</small></span><time>{source.lastSyncedAt ? `最后同步 ${new Date(source.lastSyncedAt).toLocaleString('zh-CN')}` : '等待首次同步'}</time></div>)}</div><details className="upstream-rules-disclosure animated-disclosure" onToggle={(event) => { if (!event.currentTarget.open) setExpandedUpstreamRules(null); }}><summary className="upstream-rules-toggle"><span><UiIcon name="database" size={18}/>上游镜像规则 <strong>{Math.max(0, (category.ruleCount ?? category.rules.length) - category.rules.filter((rule) => !rule.sourceId).length)}</strong></span><span>展开查看 <UiIcon name="chevronRight" size={17}/></span></summary><div className="rule-list upstream-readonly-list">{upstreamRules.map((rule) => <article className="rule-row readonly-rule-row" key={rule.id}><span className="readonly-lock"><UiIcon name="database" size={16}/></span><div><strong>{rule.value}</strong><span>{getFriendlyRuleType(rule)} · 上游：{rule.sourceName}</span></div><span className="readonly-badge">只读</span></article>)}{!expandedUpstreamRules && (category.ruleCount ?? category.rules.length) > category.rules.length && <button className="all-rule-row" onClick={async () => setExpandedUpstreamRules((await api.loadCategoryRules(category.id)).filter((rule) => rule.sourceId))}><span className="rule-main"><strong>展开全部规则</strong><small>按需加载完整上游规则</small></span><UiIcon name="chevronRight" size={18}/></button>}</div></details></section>}
+    {!!category.sources?.length && <section className="soft-card unified-card source-panel"><div className="section-inline"><div><h2>上游同步</h2><p>{SYNC_INTERVALS.find((item) => item.value === (category.syncIntervalMinutes ?? 60))?.label ?? `每 ${category.syncIntervalMinutes ?? 60} 分钟`}自动更新，镜像规则保持只读</p></div><button className="primary-action icon-action sync-action" disabled={syncing} onClick={syncCategory}><UiIcon name="sync" size={18}/>{syncing ? '正在同步…' : '同步上游'}</button></div><div className="source-list">{category.sources.map((source) => <div className="source-row" key={source.id}><span className={`source-status ${source.lastStatus ?? 'pending'}`}/><span><strong>{source.name}</strong><small>{source.sourceType === 'geoip' ? `geoip:${source.geoipName}` : source.sourceType === 'geosite' ? `geosite:${source.geositeName}` : source.url}</small></span><span><strong>{source.lastCount ?? 0}</strong><small>条规则</small></span><time>{source.lastSyncedAt ? `最后同步 ${new Date(source.lastSyncedAt).toLocaleString('zh-CN')}` : '等待首次同步'}</time></div>)}</div><details className="upstream-rules-disclosure animated-disclosure" onToggle={(event) => { const open = event.currentTarget.open; setUpstreamRulesOpen(open); if (!open) setExpandedUpstreamRules(null); }}><summary className="upstream-rules-toggle"><span><UiIcon name="database" size={18}/>上游镜像规则 <strong>{(category.urlRuleCount ?? 0) + (category.geoRuleCount ?? 0)}</strong></span><span>{upstreamRulesOpen ? '收起全部' : '展开查看'} <UiIcon name="chevronRight" size={17}/></span></summary><div className="rule-list upstream-readonly-list">{visibleUpstreamRules.map((rule) => <article className="rule-row readonly-rule-row" key={rule.id}><span className="readonly-lock"><UiIcon name="database" size={16}/></span><div><strong>{rule.value}</strong><span>{getFriendlyRuleType(rule)} · 上游：{rule.sourceName}</span></div><span className="readonly-badge">只读</span></article>)}</div>{!query.trim() && (category.urlRuleCount ?? 0) + (category.geoRuleCount ?? 0) > visibleUpstreamRules.length && <button className="rules-expand-notice" disabled={loadingAllUpstreamRules} onClick={expandAllUpstreamRules}><span className="rules-expand-icon"><UiIcon name={loadingAllUpstreamRules ? 'sync' : 'expand'} size={19}/></span><span className="rules-expand-copy"><strong>{loadingAllUpstreamRules ? '正在加载完整规则…' : '展开全部规则'}</strong><small>当前显示 {visibleUpstreamRules.length} 条，共 {(category.urlRuleCount ?? 0) + (category.geoRuleCount ?? 0)} 条</small></span><span className="rules-expand-action">{loadingAllUpstreamRules ? '加载中' : '查看全部'}<UiIcon name="chevronRight" size={16}/></span></button>}</details></section>}
     <div className="detail-layout">
       <section className="soft-card unified-card input-panel add-rule-card"><div className="card-title"><span className="metric-icon blue"><UiIcon name="plus"/></span><div><h2>逐个添加</h2><p>自定义规则不会被上游同步覆盖</p></div></div><label><span>规则地址</span><input className="app-input" placeholder="例如：chatgpt.com、1-79、127.0.0.0/8" value={value} onChange={(event) => setValue(event.target.value)}/></label><div className="rule-type-field"><span>规则类型</span><select className="app-input" value={type} onChange={(event) => setType(event.target.value as DomainRuleType)}><option value="">自动识别</option>{FRIENDLY_RULE_TYPES.filter((item) => item.type).map((item) => <option key={item.label} value={item.type}>{item.label} — {item.description}</option>)}</select></div><label><span>备注，可不填</span><input className="app-input" placeholder="例如：ChatGPT 官网" value={note} onChange={(event) => setNote(event.target.value)}/></label><button className="primary-action" disabled={!value.trim()} onClick={add}>添加规则</button></section>
       <section className="soft-card unified-card input-panel bulk-card"><div className="card-title"><span className="metric-icon purple"><UiIcon name="upload"/></span><div><h2>批量添加</h2><p>一行一条，预览确认后再导入</p></div></div><textarea className="app-input textarea" placeholder={'chatgpt.com\n+.apple.com\n127.0.0.0/8'} value={bulkText} onChange={(event) => setBulkText(event.target.value)}/><div className="card-actions bulk-preview-actions"><button className="preview-action icon-action" onClick={previewImport} disabled={!bulkText.trim()}><UiIcon name="search" size={17}/>预览规则</button></div></section>

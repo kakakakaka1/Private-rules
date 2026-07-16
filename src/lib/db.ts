@@ -1,4 +1,5 @@
 import type { BackupRuleSource, DomainRule, RuleCategory, RuleSettings, RuleSource, RulesBackupData, RulesData } from '../types/domain-rules';
+import { UPSTREAM_RULE_PREVIEW_LIMIT } from '../types/domain-rules';
 import type { Env } from '../types';
 import { parseRuleInput } from './parser';
 import { id, slugify, validateCategoryName } from './slug';
@@ -30,6 +31,19 @@ type RuleRow = {
   created_at: string;
   updated_at: string;
   source_id: string | null;
+  source_name?: string | null;
+  source_type?: 'url' | 'geosite' | 'geoip' | null;
+  category_name?: string | null;
+  category_description?: string | null;
+};
+
+type RuleCountRow = {
+  category_id: string;
+  rule_count: number;
+  enabled_rule_count: number;
+  manual_rule_count: number;
+  url_rule_count: number;
+  geo_rule_count: number;
 };
 
 type SourceRow = {
@@ -162,7 +176,7 @@ function sourceFromRow(row: SourceRow): RuleSource {
     sourceType: row.source_type ?? 'url', geositeName: row.geosite_name ?? undefined, geoipName: row.geoip_name ?? undefined };
 }
 
-function categoryFromRow(row: CategoryRow, rules: DomainRule[], sources: RuleSource[], counts?: { total: number; active: number }): RuleCategory {
+function categoryFromRow(row: CategoryRow, rules: DomainRule[], sources: RuleSource[], counts?: RuleCountRow): RuleCategory {
   const uniqueRules = new Map<string, DomainRule>();
   for (const rule of rules) {
     const key = `${rule.type}:${rule.value}`.toLowerCase();
@@ -181,13 +195,16 @@ function categoryFromRow(row: CategoryRow, rules: DomainRule[], sources: RuleSou
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     rules: [...uniqueRules.values()],
-    ruleCount: counts?.total ?? uniqueRules.size,
-    activeRuleCount: counts?.active ?? [...uniqueRules.values()].filter((rule) => rule.enabled).length,
     publicLinksEnabled: row.public_links_enabled !== 0,
     tokenLinksEnabled: row.token_links_enabled !== 0,
     sources,
     lastSyncedAt: sources.reduce<string | undefined>((latest, source) => !latest || (source.lastSyncedAt ?? '') > latest ? source.lastSyncedAt : latest, undefined),
     syncIntervalMinutes: sources[0]?.syncIntervalMinutes ?? 60,
+    ruleCount: counts?.rule_count ?? uniqueRules.size,
+    enabledRuleCount: counts?.enabled_rule_count ?? [...uniqueRules.values()].filter((rule) => rule.enabled).length,
+    manualRuleCount: counts?.manual_rule_count ?? [...uniqueRules.values()].filter((rule) => !rule.sourceId).length,
+    urlRuleCount: counts?.url_rule_count ?? [...uniqueRules.values()].filter((rule) => rule.sourceType === 'url').length,
+    geoRuleCount: counts?.geo_rule_count ?? [...uniqueRules.values()].filter((rule) => rule.sourceId && rule.sourceType !== 'url').length,
   };
 }
 
@@ -204,7 +221,33 @@ function ruleFromRow(row: RuleRow): DomainRule {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     sourceId: row.source_id ?? undefined,
+    sourceName: row.source_name ?? undefined,
+    sourceType: row.source_type ?? undefined,
   };
+}
+
+const deduplicatedRuleCte = `WITH ranked_rules AS (
+  SELECT r.*, s.name AS source_name, COALESCE(s.source_type, 'url') AS source_type,
+    c.name AS category_name, c.description AS category_description,
+    ROW_NUMBER() OVER (
+      PARTITION BY r.category_id, LOWER(r.type), LOWER(r.value)
+      ORDER BY CASE WHEN r.source_id IS NULL THEN 0 ELSE 1 END, r.sort_order ASC, r.created_at ASC
+    ) AS duplicate_rank
+  FROM rules r
+  LEFT JOIN category_sources s ON s.id = r.source_id
+  LEFT JOIN categories c ON c.id = r.category_id
+)`;
+
+async function getRuleCounts(env: Env) {
+  const rows = await env.DB.prepare(`${deduplicatedRuleCte}
+    SELECT category_id,
+      COUNT(*) AS rule_count,
+      SUM(CASE WHEN enabled <> 0 THEN 1 ELSE 0 END) AS enabled_rule_count,
+      SUM(CASE WHEN source_id IS NULL THEN 1 ELSE 0 END) AS manual_rule_count,
+      SUM(CASE WHEN source_id IS NOT NULL AND source_type = 'url' THEN 1 ELSE 0 END) AS url_rule_count,
+      SUM(CASE WHEN source_id IS NOT NULL AND source_type <> 'url' THEN 1 ELSE 0 END) AS geo_rule_count
+    FROM ranked_rules WHERE duplicate_rank = 1 GROUP BY category_id`).all<RuleCountRow>();
+  return new Map((rows.results ?? []).map((row) => [row.category_id, row]));
 }
 
 export async function getSettings(env: Env): Promise<RuleSettings> {
@@ -243,22 +286,11 @@ export async function saveSettings(env: Env, input: Partial<RuleSettings>) {
   return next;
 }
 
-export async function getRulesData(env: Env, options: { upstreamPreviewLimit?: number } = {}): Promise<RulesData> {
-  const ruleQuery = options.upstreamPreviewLimit === undefined
-    ? env.DB.prepare('SELECT * FROM rules ORDER BY sort_order ASC, created_at ASC')
-    : env.DB.prepare(`SELECT id, category_id, value, type, display_type, note, enabled, sort_order, created_at, updated_at, source_id
-        FROM rules WHERE source_id IS NULL
-        UNION ALL
-        SELECT id, category_id, value, type, display_type, note, enabled, sort_order, created_at, updated_at, source_id FROM (
-          SELECT rules.*, ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY sort_order ASC, created_at ASC) AS preview_rank
-          FROM rules WHERE source_id IS NOT NULL
-        ) WHERE preview_rank <= ?
-        ORDER BY sort_order ASC, created_at ASC`).bind(options.upstreamPreviewLimit);
-  const [categoryRows, ruleRows, sourceRows, countRows, settings, apiKeyRow] = await Promise.all([
+export async function getRulesData(env: Env): Promise<RulesData> {
+  const [categoryRows, ruleRows, sourceRows, settings, apiKeyRow] = await Promise.all([
     env.DB.prepare('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC').all<CategoryRow>(),
-    ruleQuery.all<RuleRow>(),
+    env.DB.prepare('SELECT * FROM rules ORDER BY sort_order ASC, created_at ASC').all<RuleRow>(),
     env.DB.prepare('SELECT * FROM category_sources ORDER BY created_at ASC').all<SourceRow>(),
-    env.DB.prepare('SELECT category_id, COUNT(*) AS total, SUM(CASE WHEN enabled <> 0 THEN 1 ELSE 0 END) AS active FROM rules GROUP BY category_id').all<{ category_id: string; total: number; active: number }>(),
     getSettings(env),
     env.DB.prepare('SELECT id FROM api_keys LIMIT 1').first<{ id: string }>(),
   ]);
@@ -271,10 +303,13 @@ export async function getRulesData(env: Env, options: { upstreamPreviewLimit?: n
   }
 
   const sources = (sourceRows.results ?? []).map(sourceFromRow);
-  const counts = new Map((countRows.results ?? []).map((row) => [row.category_id, { total: Number(row.total), active: Number(row.active) }]));
-  const sourceNames = new Map(sources.map((source) => [source.id, source.name]));
-  for (const list of rulesByCategory.values()) for (const rule of list) if (rule.sourceId) rule.sourceName = sourceNames.get(rule.sourceId);
-  const categories = (categoryRows.results ?? []).map((row) => categoryFromRow(row, rulesByCategory.get(row.id) ?? [], sources.filter((source) => source.categoryId === row.id), counts.get(row.id)));
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
+  for (const list of rulesByCategory.values()) for (const rule of list) if (rule.sourceId) {
+    const source = sourceById.get(rule.sourceId);
+    rule.sourceName = source?.name;
+    rule.sourceType = source?.sourceType ?? 'url';
+  }
+  const categories = (categoryRows.results ?? []).map((row) => categoryFromRow(row, rulesByCategory.get(row.id) ?? [], sources.filter((source) => source.categoryId === row.id)));
   const updatedAt = categories.reduce((latest, category) => (category.updatedAt > latest ? category.updatedAt : latest), '');
 
   return {
@@ -293,43 +328,100 @@ export async function getRulesData(env: Env, options: { upstreamPreviewLimit?: n
   };
 }
 
-export async function getCategoryRules(env: Env, categoryId: string): Promise<DomainRule[]> {
-  const [ruleRows, sourceRows] = await Promise.all([
-    env.DB.prepare('SELECT * FROM rules WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC').bind(categoryId).all<RuleRow>(),
-    env.DB.prepare('SELECT * FROM category_sources WHERE category_id = ?').bind(categoryId).all<SourceRow>(),
+/**
+ * Lightweight payload for the admin UI. Custom rules stay editable, while
+ * mirrored upstream rules are capped per category until the user explicitly
+ * expands a list or starts a server-side search.
+ */
+export async function getRulesOverview(env: Env, upstreamPreviewLimit = UPSTREAM_RULE_PREVIEW_LIMIT): Promise<RulesData> {
+  const [categoryRows, manualRuleRows, upstreamRuleRows, sourceRows, settings, apiKeyRow, countsByCategory] = await Promise.all([
+    env.DB.prepare('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC').all<CategoryRow>(),
+    env.DB.prepare('SELECT * FROM rules WHERE source_id IS NULL ORDER BY sort_order ASC, created_at ASC').all<RuleRow>(),
+    env.DB.prepare(`SELECT id, category_id, value, type, display_type, note, enabled, sort_order, created_at, updated_at, source_id
+      FROM (
+        SELECT r.*, ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY sort_order ASC, created_at ASC) AS preview_row
+        FROM rules r WHERE source_id IS NOT NULL
+      ) WHERE preview_row <= ? ORDER BY category_id, sort_order ASC, created_at ASC`).bind(upstreamPreviewLimit).all<RuleRow>(),
+    env.DB.prepare('SELECT * FROM category_sources ORDER BY created_at ASC').all<SourceRow>(),
+    getSettings(env),
+    env.DB.prepare('SELECT id FROM api_keys LIMIT 1').first<{ id: string }>(),
+    getRuleCounts(env),
   ]);
-  const sourceNames = new Map((sourceRows.results ?? []).map((row) => [row.id, sourceFromRow(row).name]));
-  return (ruleRows.results ?? []).map((row) => {
+
+  const sources = (sourceRows.results ?? []).map(sourceFromRow);
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
+  const rulesByCategory = new Map<string, DomainRule[]>();
+  for (const row of [...(manualRuleRows.results ?? []), ...(upstreamRuleRows.results ?? [])]) {
     const rule = ruleFromRow(row);
-    if (rule.sourceId) rule.sourceName = sourceNames.get(rule.sourceId);
-    return rule;
-  });
+    const source = rule.sourceId ? sourceById.get(rule.sourceId) : undefined;
+    if (source) {
+      rule.sourceName = source.name;
+      rule.sourceType = source.sourceType ?? 'url';
+    }
+    const list = rulesByCategory.get(row.category_id) ?? [];
+    list.push(rule);
+    rulesByCategory.set(row.category_id, list);
+  }
+
+  const categories = (categoryRows.results ?? []).map((row) => categoryFromRow(
+    row,
+    rulesByCategory.get(row.id) ?? [],
+    sources.filter((source) => source.categoryId === row.id),
+    countsByCategory.get(row.id),
+  ));
+  const updatedAt = categories.reduce((latest, category) => category.updatedAt > latest ? category.updatedAt : latest, '');
+  return {
+    version: 1,
+    settings,
+    meta: {
+      d1Ready: true,
+      adminPasswordConfigured: Boolean(env.ADMIN_PASSWORD),
+      ruleTokenConfigured: Boolean(env.RULE_TOKEN),
+      sessionSecretConfigured: Boolean(env.SESSION_SECRET),
+      apiKeyConfigured: Boolean(apiKeyRow?.id),
+    },
+    categories,
+    updatedAt: updatedAt || now(),
+    lastSyncedAt: sources.reduce<string | undefined>((latest, source) => !latest || (source.lastSyncedAt ?? '') > latest ? source.lastSyncedAt : latest, undefined),
+  };
 }
 
-export async function searchRules(env: Env, query: string): Promise<DomainRule[]> {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return [];
-  const pattern = `%${normalized}%`;
-  const rows = await env.DB.prepare(`SELECT rules.*,
-      category_sources.name AS matched_source_name
-    FROM rules
-    JOIN categories ON categories.id = rules.category_id
-    LEFT JOIN category_sources ON category_sources.id = rules.source_id
-    WHERE LOWER(rules.value) LIKE ?
-       OR LOWER(rules.type) LIKE ?
-       OR LOWER(IFNULL(rules.display_type, '')) LIKE ?
-       OR LOWER(IFNULL(rules.note, '')) LIKE ?
-       OR LOWER(IFNULL(category_sources.name, '')) LIKE ?
-       OR LOWER(categories.name) LIKE ?
-       OR LOWER(IFNULL(categories.description, '')) LIKE ?
-    ORDER BY categories.sort_order ASC, rules.sort_order ASC, rules.created_at ASC`)
-    .bind(pattern, pattern, pattern, pattern, pattern, pattern, pattern)
-    .all<RuleRow & { matched_source_name: string | null }>();
-  return (rows.results ?? []).map((row) => {
-    const rule = ruleFromRow(row);
-    if (rule.sourceId) rule.sourceName = row.matched_source_name ?? undefined;
-    return rule;
-  });
+export type RuleSourceFilter = 'manual' | 'upstream' | 'url' | 'geo';
+
+export async function listRules(env: Env, options: {
+  categoryId?: string;
+  query?: string;
+  source?: RuleSourceFilter;
+  limit?: number;
+} = {}) {
+  const conditions = ['duplicate_rank = 1'];
+  const bindings: unknown[] = [];
+  if (options.categoryId) {
+    conditions.push('category_id = ?');
+    bindings.push(options.categoryId);
+  }
+  if (options.source === 'manual') conditions.push('source_id IS NULL');
+  if (options.source === 'upstream') conditions.push('source_id IS NOT NULL');
+  if (options.source === 'url') conditions.push("source_id IS NOT NULL AND source_type = 'url'");
+  if (options.source === 'geo') conditions.push("source_id IS NOT NULL AND source_type <> 'url'");
+  const query = options.query?.trim();
+  if (query) {
+    conditions.push(`(LOWER(value) LIKE LOWER(?) OR LOWER(COALESCE(note, '')) LIKE LOWER(?)
+      OR LOWER(type) LIKE LOWER(?) OR LOWER(COALESCE(display_type, '')) LIKE LOWER(?)
+      OR LOWER(COALESCE(source_name, '')) LIKE LOWER(?) OR LOWER(COALESCE(category_name, '')) LIKE LOWER(?)
+      OR LOWER(COALESCE(category_description, '')) LIKE LOWER(?))`);
+    const pattern = `%${query}%`;
+    bindings.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern);
+  }
+  const limit = options.limit === undefined ? UPSTREAM_RULE_PREVIEW_LIMIT : Math.max(0, Math.min(options.limit, 100_000));
+  const statement = env.DB.prepare(`${deduplicatedRuleCte}
+    SELECT id, category_id, value, type, display_type, note, enabled, sort_order, created_at, updated_at,
+      source_id, source_name, source_type
+    FROM ranked_rules WHERE ${conditions.join(' AND ')}
+    ORDER BY category_id, sort_order ASC, created_at ASC${limit ? ' LIMIT ?' : ''}`);
+  if (limit) bindings.push(limit);
+  const rows = await statement.bind(...bindings).all<RuleRow>();
+  return (rows.results ?? []).map(ruleFromRow);
 }
 
 export async function getBackupData(env: Env): Promise<RulesBackupData> {
@@ -394,7 +486,7 @@ export async function createCategory(env: Env, input: CategoryInput) {
     )
     .run();
   if (input.sourceUrls?.length || input.geositeNames?.length || input.geoipNames?.length) await replaceCategorySources(env, categoryId, input.sourceUrls ?? [], input.syncIntervalMinutes ?? 60, input.geositeNames ?? [], input.geoipNames ?? [], input.userAgent);
-  return getRulesData(env);
+  return getRulesOverview(env);
 }
 
 export async function updateCategory(env: Env, categoryId: string, input: CategoryInput) {
@@ -428,7 +520,7 @@ export async function updateCategory(env: Env, categoryId: string, input: Catego
     const existingSource = await env.DB.prepare('SELECT sync_interval_minutes, user_agent FROM category_sources WHERE category_id = ? LIMIT 1').bind(categoryId).first<{ sync_interval_minutes: number | null; user_agent: string | null }>();
     await replaceCategorySources(env, categoryId, input.sourceUrls ?? [], input.syncIntervalMinutes ?? existingSource?.sync_interval_minutes ?? 60, input.geositeNames ?? [], input.geoipNames ?? [], input.userAgent ?? existingSource?.user_agent);
   }
-  return getRulesData(env);
+  return getRulesOverview(env);
 }
 
 export async function replaceCategorySources(env: Env, categoryId: string, sourceUrls: string[], syncIntervalMinutes = 60, geositeNames: string[] = [], geoipNames: string[] = [], userAgent?: string | null) {
@@ -463,7 +555,7 @@ export async function replaceCategorySources(env: Env, categoryId: string, sourc
 
 export async function deleteCategory(env: Env, categoryId: string) {
   await env.DB.prepare('DELETE FROM categories WHERE id = ?').bind(categoryId).run();
-  return getRulesData(env);
+  return getRulesOverview(env);
 }
 
 export async function addRule(env: Env, categoryId: string, input: { value: string; type?: DomainRule['type']; note?: string }) {
@@ -472,7 +564,7 @@ export async function addRule(env: Env, categoryId: string, input: { value: stri
   const rule = parseRuleInput(input.value, input.type, input.note);
   await insertRule(env, categoryId, rule, Date.now());
   await touchCategory(env, categoryId);
-  return getRulesData(env);
+  return getRulesOverview(env);
 }
 
 export async function updateRule(env: Env, categoryId: string, ruleId: string, input: Partial<DomainRule>) {
@@ -496,7 +588,7 @@ export async function updateRule(env: Env, categoryId: string, ruleId: string, i
     )
     .run();
   await touchCategory(env, categoryId);
-  return getRulesData(env);
+  return getRulesOverview(env);
 }
 
 export async function deleteRule(env: Env, categoryId: string, ruleId: string) {
@@ -505,7 +597,7 @@ export async function deleteRule(env: Env, categoryId: string, ruleId: string) {
   if (current.source_id) throw new Error('上游规则为只读，不能单独删除。');
   await env.DB.prepare('DELETE FROM rules WHERE id = ? AND category_id = ?').bind(ruleId, categoryId).run();
   await touchCategory(env, categoryId);
-  return getRulesData(env);
+  return getRulesOverview(env);
 }
 
 export async function batchUpdateRules(env: Env, categoryId: string, ruleIds: string[], action: 'enable' | 'disable' | 'delete') {
@@ -520,7 +612,7 @@ export async function batchUpdateRules(env: Env, categoryId: string, ruleIds: st
       .bind(action === 'enable' ? 1 : 0, now(), categoryId, ...ids).run();
   }
   await touchCategory(env, categoryId);
-  return getRulesData(env);
+  return getRulesOverview(env);
 }
 
 export async function insertRule(env: Env, categoryId: string, rule: DomainRule, sortOrder = 0, sourceId?: string) {
@@ -596,7 +688,7 @@ export async function importRulesData(env: Env, data: RulesData | RulesBackupDat
       await insertRule(env, categoryId, { ...rule, id: rule.id || id('rule') }, rule.sortOrder ?? ruleIndex);
     }
   }
-  return getRulesData(env);
+  return getRulesOverview(env);
 }
 
 async function touchCategory(env: Env, categoryId: string) {

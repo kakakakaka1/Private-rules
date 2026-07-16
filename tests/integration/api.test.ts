@@ -26,7 +26,7 @@ describe('HTTP API behavior', () => {
     const largeCategory = data.categories.find((item) => item.name === 'large-rule-set')!;
     const sourceId = largeCategory.sources![0].id;
     const timestamp = new Date().toISOString();
-    for (let index = 0; index < 35; index += 1) {
+    for (let index = 0; index < 1005; index += 1) {
       await insertRule(env, largeCategory.id, { id: `large-${index}`, categoryId: largeCategory.id, value: `speed-${index}.example`, type: 'DOMAIN-SUFFIX', enabled: true, sourceId, createdAt: timestamp, updatedAt: timestamp }, index, sourceId);
     }
   });
@@ -70,17 +70,18 @@ describe('HTTP API behavior', () => {
     expect(untrusted.headers.get('set-cookie')).not.toContain('Secure');
   });
 
-  it('returns a 30-rule preview while expansion, search, and subscriptions use the full set', async () => {
+  it('returns a 1000-rule preview while counts, expansion, search, and subscriptions use the full set', async () => {
     const login = await request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'correct-password' }) });
     cookie = login.headers.get('set-cookie')?.split(';')[0] ?? '';
-    const categories = (await (await request('/api/categories')).json()) as { data: { categories: Array<{ id: string; name: string; rules: unknown[]; ruleCount: number }> } };
+    const categories = (await (await request('/api/categories')).json()) as { data: { categories: Array<{ id: string; name: string; rules: unknown[]; ruleCount: number; enabledRuleCount: number }> } };
     const category = categories.data.categories.find((item) => item.name === 'large-rule-set')!;
-    expect(category.rules).toHaveLength(30);
-    expect(category.ruleCount).toBe(35);
-    const expanded = (await (await request(`/api/categories/${category.id}/rules`)).json()) as { rules: unknown[] };
-    expect(expanded.rules).toHaveLength(35);
-    const searched = (await (await request('/api/rules/search?q=speed')).json()) as { rules: unknown[] };
-    expect(searched.rules).toHaveLength(35);
-    expect(await (await request('/rules/large-rule-set.yaml')).text()).toContain('speed-34.example');
+    expect(category.rules).toHaveLength(1000);
+    expect(category.ruleCount).toBe(1005);
+    expect(category.enabledRuleCount).toBe(1005);
+    const expanded = (await (await request(`/api/rules?categoryId=${category.id}&source=upstream&all=1`)).json()) as { rules: unknown[] };
+    expect(expanded.rules).toHaveLength(1005);
+    const searched = (await (await request('/api/rules?q=speed&all=1')).json()) as { rules: unknown[] };
+    expect(searched.rules).toHaveLength(1005);
+    expect(await (await request('/rules/large-rule-set.yaml')).text()).toContain('speed-1004.example');
   });
 });

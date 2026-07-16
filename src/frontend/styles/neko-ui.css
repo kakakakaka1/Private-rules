@@ -566,6 +566,33 @@
 .category-rule-folder { background: var(--panel); border-radius: 12px; }
 .category-rule-folder > summary { min-height: 58px; padding: 9px 12px; }
 .category-rule-folder .category-icon { flex: 0 0 auto; }
+.rules-expand-notice {
+  align-items: center;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--neko-primary) 9%, var(--panel)), color-mix(in srgb, var(--neko-primary) 3%, var(--panel)));
+  border: 0;
+  border-top: 1px solid var(--neko-line);
+  color: var(--neko-ink);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 12px;
+  grid-template-columns: 40px minmax(0,1fr) auto;
+  min-height: 72px;
+  padding: 11px 14px;
+  text-align: left;
+  width: 100%;
+}
+.rules-expand-notice:hover { background: linear-gradient(135deg, color-mix(in srgb, var(--neko-primary) 14%, var(--panel)), color-mix(in srgb, var(--neko-primary) 6%, var(--panel))); }
+.rules-expand-icon { align-items: center; background: color-mix(in srgb, var(--neko-primary) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--neko-primary) 28%, var(--neko-line)); border-radius: 12px; color: var(--neko-primary); display: inline-flex; height: 40px; justify-content: center; width: 40px; }
+.rules-expand-copy { display: grid; gap: 3px; min-width: 0; }
+.rules-expand-copy strong { color: var(--neko-ink); font-size: 14px; line-height: 1.25; }
+.rules-expand-copy small { color: var(--neko-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rules-expand-action { align-items: center; background: var(--panel); border: 1px solid color-mix(in srgb, var(--neko-primary) 24%, var(--neko-line)); border-radius: 999px; color: var(--neko-primary); display: inline-flex; font-size: 12px; font-weight: 700; gap: 4px; min-height: 34px; padding: 0 10px 0 12px; white-space: nowrap; }
+.rules-expand-action .ui-icon { transition: transform .3s cubic-bezier(.16,1,.3,1); }
+.rules-expand-notice:not(:disabled):hover .rules-expand-action .ui-icon { transform: translateX(2px); }
+.rules-expand-notice:disabled .rules-expand-icon .ui-icon { animation: sync-spin 1.1s linear infinite; }
+.rules-expand-notice:disabled { cursor: wait; opacity: .72; }
+.rules-search-status { color: var(--neko-muted); font-size: 13px; margin: 12px 0 0; }
 .compact-group-table { border-top: 1px solid var(--neko-line); margin: 0; padding: 0 12px; }
 .compact-group-table .all-rule-row { grid-template-columns: 10px minmax(0,1fr) auto; min-height: 64px; }
 .rule-source-group[open] > .category-rule-folders, .category-rule-folder[open] > .compact-group-table { animation: fold-in .42s cubic-bezier(.16,1,.3,1) both; transform-origin: top; }
@@ -615,6 +642,8 @@
 [data-theme='dark'] .switch input:checked + span { background: #36abb2; border-color: #55bdc3; }
 
 .named-pack-row { grid-template-columns: minmax(150px,.45fr) minmax(240px,1fr) auto; }
+.add-pack-button { min-height: 42px; white-space: nowrap; }
+.add-pack-button .ui-icon:last-child { display: none; }
 .icon-pack-name-input { min-height: 38px; padding: 7px 10px; }
 .custom-icon-pack-row > span:nth-child(2) { gap: 6px; }
 .editable-pack-row > span:nth-child(2) { display: grid; grid-template-columns: minmax(130px,.38fr) minmax(220px,1fr); width: 100%; }
@@ -623,12 +652,19 @@
 @media (max-width: 819px) { .geosite-search-row { grid-template-columns: 1fr; } }
 @media (max-width: 560px) {
   .named-pack-row { grid-template-columns: 1fr; }
+  .named-pack-row > .add-pack-button { align-items: center; background: var(--text); border-color: var(--text); box-shadow: none; color: var(--bg); display: inline-flex; gap: 7px; justify-content: center; justify-self: stretch; min-height: 44px; padding: 0 14px; text-align: center; width: 100%; }
+  .add-pack-button .ui-icon:last-child { display: none; }
+  [data-theme='dark'] .named-pack-row > .add-pack-button { background: #259ca4; border-color: #259ca4; color: #071215; }
   .backup-card-actions { grid-template-columns: 1fr; }
   .upstream-kind-tabs { grid-template-columns: 1fr; }
   .geosite-results > button { grid-template-columns: minmax(0,1fr) 18px; }
   .geosite-results em { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
   .readonly-summary-row { grid-template-columns: 9px minmax(0,1fr) auto; }
   .readonly-summary-row .category-tag { display: none; }
+  .rules-expand-notice { gap: 10px; grid-template-columns: 38px minmax(0,1fr) auto; min-height: 68px; padding: 10px 11px; }
+  .rules-expand-icon { border-radius: 11px; height: 38px; width: 38px; }
+  .rules-expand-action { font-size: 0; min-height: 34px; padding: 0 7px; }
+  .rules-expand-action .ui-icon { height: 17px; width: 17px; }
 }
 
 /* Quiet root scrollbar: reveal only while the page is moving */
