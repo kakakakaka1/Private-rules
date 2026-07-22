@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatters } from '../../src/lib/formatters';
+import { formatters, resolveFile } from '../../src/lib/formatters';
 import { parseBulkImport, parseRuleInput } from '../../src/lib/parser';
 import { RULE_TYPES } from '../../src/lib/rule-types';
 import { isSourceDue } from '../../src/lib/sync';
@@ -48,14 +48,33 @@ describe('rule parsing and subscriptions', () => {
     expect(() => parseRuleInput('65536', 'DST-PORT')).toThrow('目标端口格式不正确');
   });
 
-  it('keeps destination port types in formatted subscriptions', () => {
+  it('generates a valid sing-box source rule-set without changing match semantics', () => {
     const category: RuleCategory = { id: 'ports', name: 'Ports', slug: 'ports', updatedAt: '2026-01-01T00:00:00.000Z', rules: [
       { id: 'port-1', value: '1-79', type: 'DST-PORT', enabled: true, createdAt: '', updatedAt: '' },
+      { id: 'port-2', value: '443', type: 'DST-PORT', enabled: true, createdAt: '', updatedAt: '' },
+      { id: 'domain-1', value: 'example.com', type: 'DOMAIN-SUFFIX', enabled: true, createdAt: '', updatedAt: '' },
+      { id: 'ip-1', value: '10.0.0.0/8', type: 'IP-CIDR', enabled: true, createdAt: '', updatedAt: '' },
+      { id: 'source-ip-1', value: '192.168.0.0/16', type: 'SRC-IP-CIDR', enabled: true, createdAt: '', updatedAt: '' },
     ] };
     const data = { settings: { policyName: '', baseUrl: '', githubMirrorUrl: '', publicLinksEnabled: true, tokenLinksEnabled: true, customIconPackUrls: [], customIconPackNames: {} } } as RulesData;
     expect(formatters.yaml.format(category, data)).toContain('DST-PORT,1-79');
     expect(formatters.general.format(category, data)).toContain('DST-PORT,1-79');
-    expect(formatters.json.format(category, data)).toContain('"type": "DST-PORT"');
+    expect(JSON.parse(formatters.json.format(category, data))).toEqual({
+      version: 2,
+      rules: [
+        { domain_suffix: ['example.com'], ip_cidr: ['10.0.0.0/8'] },
+        { source_ip_cidr: ['192.168.0.0/16'] },
+        { port_range: ['1:79'], port: [443] },
+      ],
+    });
+  });
+
+  it('publishes sing-box client links as JSON rule-sets', () => {
+    const category: RuleCategory = { id: 'cat', name: 'Test', slug: 'test', updatedAt: '', rules: [] };
+    const data = { settings: { policyName: '', baseUrl: '', githubMirrorUrl: '', publicLinksEnabled: true, tokenLinksEnabled: true, customIconPackUrls: [], customIconPackNames: {} }, categories: [category] } as RulesData;
+    const singBox = linksForCategory(category, data, 'https://console.example.com').find((link) => link.id === 'sing-box');
+    expect(singBox?.fileName).toBe('test-sing-box.json');
+    expect(resolveFile(data, 'test-sing-box.json')?.contentType).toBe('application/json; charset=utf-8');
   });
 });
 

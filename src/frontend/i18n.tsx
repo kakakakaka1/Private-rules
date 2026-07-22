@@ -48,6 +48,7 @@ const ENGLISH_PHRASES: Array<[string, string]> = [
   ['适用于 Loon、Surge、Shadowrocket 与 Egern', 'For Loon, Surge, Shadowrocket, and Egern'],
   ['仅保留域名与 IP，方便脚本或其他工具继续处理', 'Keep only domains and IPs for scripts and other tools'],
   ['保留结构化规则数据，适合二次开发和自动化', 'Keep structured rule data for integrations and automation'],
+  ['sing-box JSON', 'sing-box JSON'], ['原生 source Rule Set，可由 sing-box 远程订阅', 'Native source rule-set for remote sing-box subscriptions'],
   ['当前未开放订阅访问', 'Subscription access is disabled'], ['当前使用公开地址', 'Using the public URL'],
   ['此规则当前未开放可用的订阅链接', 'No subscription URL is currently available for this rule'],
   ['规则访问策略已更新', 'Rule access policy updated'], ['订阅链接已复制', 'Subscription URL copied'],

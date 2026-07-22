@@ -105,23 +105,26 @@ export function quantumultX(category: RuleCategory, data: RulesData) {
   return `${lines.join('\n')}\n`;
 }
 
-export function json(category: RuleCategory) {
-  return `${JSON.stringify(
-    {
-      category: category.name,
-      slug: category.slug,
-      generatedBy: 'Private Rules',
-      updatedAt: updatedLabel(category),
-      note: category.note ?? '',
-      rules: enabled(category).map((rule) => ({
-        type: rule.type,
-        value: rule.value,
-        note: rule.note ?? '',
-      })),
-    },
-    null,
-    2,
-  )}\n`;
+export function singBoxJson(category: RuleCategory) {
+  const destination: Record<string, Array<string | number>> = {};
+  const source: Record<string, string[]> = {};
+  const ports: Record<string, Array<string | number>> = {};
+  const append = (target: Record<string, Array<string | number>>, field: string, value: string | number) => {
+    (target[field] ??= []).push(value);
+  };
+
+  for (const rule of enabled(category)) {
+    if (rule.type === 'DOMAIN') append(destination, 'domain', rule.value);
+    else if (rule.type === 'DOMAIN-SUFFIX') append(destination, 'domain_suffix', rule.value);
+    else if (rule.type === 'DOMAIN-KEYWORD') append(destination, 'domain_keyword', rule.value);
+    else if (rule.type === 'IP-CIDR') append(destination, 'ip_cidr', rule.value);
+    else if (rule.type === 'SRC-IP-CIDR') append(source, 'source_ip_cidr', rule.value);
+    else if (rule.type === 'DST-PORT' && rule.value.includes('-')) append(ports, 'port_range', rule.value.replace('-', ':'));
+    else if (rule.type === 'DST-PORT') append(ports, 'port', Number(rule.value));
+  }
+
+  const rules = [destination, source, ports].filter((rule) => Object.keys(rule).length > 0);
+  return `${JSON.stringify({ version: 2, rules }, null, 2)}\n`;
 }
 
 export function url(category: RuleCategory) {
@@ -144,10 +147,10 @@ export const formatters: Record<string, Formatter> = {
   'surge-mac': { id: 'surge-mac', name: 'SurgeMacFormatter', extension: '-surge.list', format: (category) => list(category) },
   egern: { id: 'egern', name: 'EgernFormatter', extension: '-egern.list', format: (category) => list(category) },
   surfboard: { id: 'surfboard', name: 'SurfboardFormatter', extension: '-surfboard.list', format: (category) => list(category) },
-  'sing-box': { id: 'sing-box', name: 'SingBoxFormatter', extension: '-sing-box.list', format: (category) => list(category) },
+  'sing-box': { id: 'sing-box', name: 'SingBoxFormatter', extension: '-sing-box.json', format: (category) => singBoxJson(category) },
   v2ray: { id: 'v2ray', name: 'V2RayFormatter', extension: '-v2ray.list', format: (category) => list(category) },
   'quantumult-x': { id: 'quantumult-x', name: 'QuantumultXFormatter', extension: '-qx.list', format: quantumultX },
-  json: { id: 'json', name: 'JsonFormatter', extension: '.json', format: (category) => json(category) },
+  json: { id: 'json', name: 'JsonFormatter', extension: '.json', format: (category) => singBoxJson(category) },
   url: { id: 'url', name: 'UrlFormatter', extension: '.txt', format: (category) => url(category) },
 };
 
@@ -176,7 +179,7 @@ export function resolveFile(data: RulesData, fileName: string) {
       [`${base}-shadowrocket.list`, formatters.shadowrocket],
       [`${base}-egern.list`, formatters.egern],
       [`${base}-surfboard.list`, formatters.surfboard],
-      [`${base}-sing-box.list`, formatters['sing-box']],
+      [`${base}-sing-box.json`, formatters['sing-box']],
       [`${base}-v2ray.list`, formatters.v2ray],
       [`${base}.json`, formatters.json],
     ];
@@ -187,7 +190,7 @@ export function resolveFile(data: RulesData, fileName: string) {
         category,
         formatter,
         body: formatter.format(category, data),
-        contentType: formatter.id === 'json' ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
+        contentType: formatter.id === 'json' || formatter.id === 'sing-box' ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
       };
     }
   }

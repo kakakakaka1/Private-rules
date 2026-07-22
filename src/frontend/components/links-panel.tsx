@@ -19,8 +19,8 @@ export function LinksPanel({ api, data, links, onToast }: { api: ReturnType<type
   const formats = useMemo<FormatLink[]>(() => [
     { id: 'yaml', title: 'YAML 规则集', suffix: '.yaml', description: '适用于 Mihomo、Clash、OpenClash 与 Stash', tone: 'cyan', link: selectedLinks.find((link) => link.id === 'mihomo') },
     { id: 'list', title: 'LIST 规则集', suffix: '.list', description: '适用于 Loon、Surge、Shadowrocket 与 Egern', tone: 'purple', link: selectedLinks.find((link) => link.id === 'general') },
+    { id: 'json', title: 'sing-box JSON', suffix: '.json', description: '原生 source Rule Set，可由 sing-box 远程订阅', tone: 'orange', link: selectedLinks.find((link) => link.id === 'json') },
     { id: 'txt', title: '纯地址列表', suffix: '.txt', description: '仅保留域名与 IP，方便脚本或其他工具继续处理', tone: 'blue', link: selectedLinks.find((link) => link.id === 'url') },
-    { id: 'json', title: 'JSON 数据', suffix: '.json', description: '保留结构化规则数据，适合二次开发和自动化', tone: 'orange', link: selectedLinks.find((link) => link.id === 'json') },
   ], [selectedLinks]);
 
   async function copy(link?: ClientLink) {

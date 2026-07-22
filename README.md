@@ -211,13 +211,37 @@ pnpm build
 | `.yaml` | Mihomo、Clash、OpenClash、Stash |
 | `.list` | Loon、Surge、Shadowrocket、Egern 等 |
 | `.txt` | 纯文本规则，便于脚本继续处理 |
-| `.json` | 结构化数据和二次开发 |
+| `.json` | sing-box source Rule Set（在 `rule_set` 中使用 `format: "source"`） |
 
 ```text
 /rules/emby.yaml
 /sub/<RULE_TOKEN>/emby.yaml
 /sub/<RULE_TOKEN>/emby.list
 /sub/<RULE_TOKEN>/emby.json
+```
+
+sing-box 远程订阅示例：
+
+```json
+{
+  "route": {
+    "rules": [
+      { "rule_set": "emby", "outbound": "proxy" }
+    ],
+    "rule_set": [
+      {
+        "tag": "emby",
+        "type": "remote",
+        "format": "source",
+        "url": "https://example.com/sub/<RULE_TOKEN>/emby.json",
+        "update_interval": "1d"
+      }
+    ]
+  },
+  "experimental": {
+    "cache_file": { "enabled": true }
+  }
+}
 ```
 
 文本规则文件包含生成来源与最后修改时间：

@@ -15,10 +15,10 @@ const clients: Array<Omit<ClientLink, 'fileName' | 'publicUrl' | 'tokenUrl' | 'r
   { id: 'surge-mac', name: 'Surge Mac', icon: 'SM', description: 'Surge for Mac LIST 规则' },
   { id: 'egern', name: 'Egern', icon: 'EG', description: 'LIST 规则' },
   { id: 'surfboard', name: 'Surfboard', icon: 'SB', description: 'LIST 规则' },
-  { id: 'sing-box', name: 'sing-box', icon: 'SBX', description: '通用规则列表' },
+  { id: 'sing-box', name: 'sing-box', icon: 'SBX', description: 'JSON Source Rule Set' },
   { id: 'v2ray', name: 'V2Ray', icon: 'V2', description: '通用规则列表' },
   { id: 'url', name: 'URL', icon: 'URL', description: '纯域名/IP 列表' },
-  { id: 'json', name: 'JSON', icon: 'JS', description: '结构化备份或二次处理' },
+  { id: 'json', name: 'JSON', icon: 'JS', description: 'sing-box JSON Source Rule Set' },
 ];
 
 function siteBase(requestUrl: string, data: RulesData) {
