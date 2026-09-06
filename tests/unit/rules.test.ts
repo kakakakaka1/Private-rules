@@ -62,12 +62,6 @@ describe('rule parsing and subscriptions', () => {
     expect(formatters.yaml.format(category, data)).toContain('DST-PORT,1-79');
     expect(formatters.general.format(category, data)).toContain('DST-PORT,1-79');
     expect(JSON.parse(formatters.json.format(category, data))).toEqual({
-      _meta: {
-        generatedFor: 'Ports',
-        generatedBy: 'Private Rules',
-        updatedAt: '2026-01-01 08:00:00',
-        description: 'Ports规则',
-      },
       version: 2,
       rules: [
         { domain_suffix: ['example.com'], ip_cidr: ['10.0.0.0/8'] },
@@ -75,6 +69,31 @@ describe('rule parsing and subscriptions', () => {
         { port_range: ['1:79'], port: [443] },
       ],
     });
+  });
+
+  it('serves Loon-compatible ports through a separate subscription URL', () => {
+    const category: RuleCategory = { id: 'cat', name: 'Ports', slug: 'ports', updatedAt: '', rules: [
+      { id: 'a', type: 'DST-PORT', value: '443', enabled: true, createdAt: '', updatedAt: '' },
+      { id: 'b', type: 'DST-PORT', value: '80-90', enabled: true, createdAt: '', updatedAt: '' },
+      { id: 'c', type: 'DOMAIN', value: 'example.com', enabled: true, createdAt: '', updatedAt: '' },
+    ] };
+    const data = { categories: [category], settings: { baseUrl: '' } } as RulesData;
+    const links = linksForCategory(category, data, 'https://example.com', 'token');
+    const loon = links.find((link) => link.id === 'loon')!;
+    expect(loon.fileName).toBe('ports-loon.list');
+    expect(loon.recommendedUrl).toBe('https://example.com/sub/token/ports-loon.list');
+    const output = resolveFile(data, loon.fileName)!.body;
+    expect(output).toContain('DEST-PORT,443');
+    expect(output).toContain('DEST-PORT,80-90');
+    expect(output).toContain('DOMAIN,example.com');
+    expect(output).not.toContain('DST-PORT');
+    expect(resolveFile(data, 'ports.list')!.body).toContain('DST-PORT,443');
+    expect(resolveFile(data, 'ports-surge.list')!.body).toContain('DST-PORT,443');
+    for (const name of ['ports.json', 'ports-sing-box.json']) {
+      const json = JSON.parse(resolveFile(data, name)!.body);
+      expect(Object.keys(json).sort()).toEqual(['rules', 'version']);
+      expect(json.rules).toContainEqual({ port: [443], port_range: ['80:90'] });
+    }
   });
 
   it('publishes sing-box client links as JSON rule-sets', () => {

@@ -1,6 +1,6 @@
 {
   "name": "private-rules-worker",
-  "version": "1.0.5",
+  "version": "1.0.5-beta",
   "private": true,
   "packageManager": "pnpm@10.11.1",
   "type": "module",

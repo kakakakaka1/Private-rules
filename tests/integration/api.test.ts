@@ -62,6 +62,19 @@ describe('HTTP API behavior', () => {
     expect((await request('/rules/missing.yaml')).status).toBe(404);
   });
 
+  it('serves strict sing-box JSON and Loon subscriptions with the existing access policy', async () => {
+    for (const suffix of ['.json', '-sing-box.json']) {
+      const response = await request(`/rules/public-rule${suffix}`);
+      expect(response.status).toBe(200);
+      expect(Object.keys(await response.json()).sort()).toEqual(['rules', 'version']);
+    }
+    expect((await request('/rules/public-rule-loon.list')).status).toBe(200);
+    expect((await request('/rules/private-rule-loon.list')).status).toBe(404);
+    expect((await request('/sub/wrong/private-rule-loon.list')).status).toBe(404);
+    expect((await request('/sub/private-token/private-rule-loon.list')).status).toBe(200);
+    expect((await request('/rules/disabled-rule-loon.list')).status).toBe(404);
+  });
+
   it('trusts forwarded HTTPS only when explicitly configured', async () => {
     env.TRUST_PROXY = true;
     const trusted = await request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' }, body: JSON.stringify({ password: 'correct-password' }) });

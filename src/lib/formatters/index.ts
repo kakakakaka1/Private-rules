@@ -111,12 +111,12 @@ export function ipcidrYaml(category: RuleCategory) {
   return `${lines.join('\n')}\n`;
 }
 
-export function list(category: RuleCategory) {
+export function list(category: RuleCategory, loonCompatible = false) {
   const lines: string[] = generationHeader(category);
   lines.push(...commentLines(category.note || category.description));
   for (const rule of enabled(category)) {
     lines.push(...ruleNote(rule.note));
-    lines.push(ruleLine(rule));
+    lines.push(loonCompatible && rule.type === 'DST-PORT' ? `DEST-PORT,${rule.value}` : ruleLine(rule));
   }
   return `${lines.join('\n')}\n`;
 }
@@ -162,12 +162,6 @@ export function singBoxJson(category: RuleCategory) {
 
   const rules = [destination, source, ports].filter((rule) => Object.keys(rule).length > 0);
   return `${JSON.stringify({
-    _meta: {
-      generatedFor: category.name,
-      generatedBy: 'Private Rules',
-      updatedAt: updatedLabel(category),
-      description: category.note?.trim() || category.description?.trim() || `${category.name}规则`,
-    },
     version: 2,
     rules,
   }, null, 2)}\n`;
@@ -190,7 +184,7 @@ export const formatters: Record<string, Formatter> = {
   openclash: { id: 'openclash', name: 'OpenClashFormatter', extension: '.yaml', format: (category) => yaml(category) },
   'clash-verge': { id: 'clash-verge', name: 'ClashVergeFormatter', extension: '.yaml', format: (category) => yaml(category) },
   stash: { id: 'stash', name: 'StashFormatter', extension: '.yaml', format: (category) => yaml(category) },
-  loon: { id: 'loon', name: 'LoonFormatter', extension: '.list', format: (category) => list(category) },
+  loon: { id: 'loon', name: 'LoonFormatter', extension: '-loon.list', format: (category) => list(category, true) },
   shadowrocket: { id: 'shadowrocket', name: 'ShadowrocketFormatter', extension: '-shadowrocket.list', format: (category) => list(category) },
   surge: { id: 'surge', name: 'SurgeFormatter', extension: '-surge.list', format: (category) => list(category) },
   'surge-mac': { id: 'surge-mac', name: 'SurgeMacFormatter', extension: '-surge.list', format: (category) => list(category) },
@@ -228,6 +222,7 @@ export function resolveFile(data: RulesData, fileName: string) {
       [`${base}.list`, formatters.general],
       [`${base}.conf`, formatters.general],
       [`${base}.txt`, formatters.url],
+      [`${base}-loon.list`, formatters.loon],
       [`${base}-qx.list`, formatters['quantumult-x']],
       [`${base}-surge.list`, formatters.surge],
       [`${base}-shadowrocket.list`, formatters.shadowrocket],

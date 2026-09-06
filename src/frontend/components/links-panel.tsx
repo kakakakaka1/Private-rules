@@ -1,29 +1,43 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { ClientLink, RulesData } from '../../types/domain-rules';
 import type { useDomainAdmin } from '../hooks/use-domain-admin';
+import { UiMessage, type UiMessageKey } from '../i18n';
 import { copyText } from '../lib/clipboard';
 import { preferHttpsLink } from '../lib/links';
 import { CategoryIcon } from './category-icon';
 import { SortToolbar, sortCategoryEntries, usePersistentSort } from './sort-toolbar';
 import { UiIcon } from './ui-icon';
 
-type FormatLink = { id: string; title: string; suffix: string; description: string; tone: string; link?: ClientLink };
+type FormatLink = { id: string; title: UiMessageKey; suffix: string; description: UiMessageKey; tone: string; link?: ClientLink };
 type AccessPolicy = 'token' | 'public' | 'disabled';
 
 export function LinksPanel({ api, data, links, onToast }: { api: ReturnType<typeof useDomainAdmin>; data: RulesData; links: Record<string, ClientLink[]>; onToast: (message: string) => void }) {
+  const [loonCompatible, setLoonCompatible] = useState(false);
   const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.search).get('category') ?? '');
   const { value: sortKey, direction: sortDirection, setValue: setSortKey, setDirection: setSortDirection } = usePersistentSort('subscriptions');
   const selectedCategory = data.categories.find((category) => category.id === selectedId);
   const selectedLinks = selectedId ? links[selectedId] ?? [] : [];
   const sortedCategories = sortCategoryEntries(data.categories.map((category) => ({ category, count: category.ruleCount ?? category.rules.length })), sortKey, sortDirection).map((entry) => entry.category);
-  const formats = useMemo<FormatLink[]>(() => [
-    { id: 'yaml-classical', title: 'YAML · Classical', suffix: '_Classical.yaml', description: '保留 TYPE,value 完整规则，适用于 behavior: classical', tone: 'cyan', link: selectedLinks.find((link) => link.id === 'yaml-classical') },
-    { id: 'yaml-domain', title: 'YAML · Domain', suffix: '_Domain.yaml', description: '仅含域名值，适用于 behavior: domain', tone: 'cyan', link: selectedLinks.find((link) => link.id === 'yaml-domain') },
-    { id: 'yaml-ipcidr', title: 'YAML · IP/端口', suffix: '_IPCIDR.yaml', description: '包含 IP-CIDR 与来源/目标端口，适用于 behavior: classical', tone: 'cyan', link: selectedLinks.find((link) => link.id === 'yaml-ipcidr') },
-    { id: 'list', title: 'LIST 规则集', suffix: '.list', description: '适用于 Loon、Surge、Shadowrocket 与 Egern', tone: 'purple', link: selectedLinks.find((link) => link.id === 'general') },
-    { id: 'json', title: 'sing-box JSON', suffix: '.json', description: '原生 source Rule Set，可由 sing-box 远程订阅', tone: 'orange', link: selectedLinks.find((link) => link.id === 'json') },
-    { id: 'txt', title: '纯地址列表', suffix: '.txt', description: '仅保留域名与 IP，方便脚本或其他工具继续处理', tone: 'blue', link: selectedLinks.find((link) => link.id === 'url') },
-  ], [selectedLinks]);
+  const format = (id: string, title: UiMessageKey, suffix: string, description: UiMessageKey, tone: string): FormatLink => ({
+    id, title, suffix, description, tone, link: selectedLinks.find((link) => link.id === id),
+  });
+  const groups: Array<{ id: string; title: UiMessageKey; formats: FormatLink[] }> = [
+    { id: 'yaml', title: 'subscriptions.yaml', formats: [
+      format('yaml-classical', 'subscriptions.classical', '_Classical.yaml', 'subscriptions.classicalDescription', 'cyan'),
+      format('yaml-domain', 'subscriptions.domain', '_Domain.yaml', 'subscriptions.domainDescription', 'cyan'),
+      format('yaml-ipcidr', 'subscriptions.ip', '_IPCIDR.yaml', 'subscriptions.ipDescription', 'cyan'),
+    ] },
+    { id: 'list', title: 'subscriptions.list', formats: [
+      format(loonCompatible ? 'loon' : 'general', 'subscriptions.general', loonCompatible ? '-loon.list' : '.list', 'subscriptions.generalDescription', 'purple'),
+      format('quantumult-x', 'subscriptions.list', '-qx.list', 'subscriptions.qxDescription', 'purple'),
+    ] },
+    { id: 'json', title: 'subscriptions.json', formats: [
+      format('json', 'subscriptions.json', '.json', 'subscriptions.jsonDescription', 'orange'),
+    ] },
+    { id: 'txt', title: 'subscriptions.txt', formats: [
+      format('url', 'subscriptions.textTitle', '.txt', 'subscriptions.textDescription', 'blue'),
+    ] },
+  ];
 
   async function copy(link?: ClientLink) {
     if (!link?.recommendedUrl) { onToast('此规则当前未开放可用的订阅链接'); return; }
@@ -45,9 +59,19 @@ export function LinksPanel({ api, data, links, onToast }: { api: ReturnType<type
   const publicAccess = selectedCategory.publicLinksEnabled !== false;
   const accessPolicy: AccessPolicy = privateAccess ? 'token' : publicAccess ? 'public' : 'disabled';
   return <div className="page-stack unified-page">
-    <header className="page-title detail-title"><div><button className="back-button" onClick={() => setSelectedId('')}><UiIcon name="arrowLeft" size={20}/>返回订阅中心</button><div className="detail-name"><CategoryIcon icon={selectedCategory.icon} name={selectedCategory.name} size={58}/><span><h1>{selectedCategory.name} 订阅</h1><p>选择文件后缀后复制地址，同系列客户端可以共用</p></span></div></div></header>
+    <header className="page-title detail-title"><div><button className="back-button" onClick={() => setSelectedId('')}><UiIcon name="arrowLeft" size={20}/>返回订阅中心</button><div className="detail-name"><CategoryIcon icon={selectedCategory.icon} name={selectedCategory.name} size={58}/><span><h1>{selectedCategory.name} 订阅</h1><p><UiMessage id="subscriptions.choose"/></p></span></div></div></header>
     <section className="soft-card unified-card subscription-access-card"><div><span className="metric-icon blue"><UiIcon name="settings"/></span><span><h2>规则访问策略</h2><p>只影响 {selectedCategory.name} 的订阅链接</p></span></div>{api.can('toggle') ? <select className="app-input access-policy-select" value={accessPolicy} onChange={(event) => setAccess(event.target.value as AccessPolicy)}><option value="token">私密访问（带密钥）</option><option value="public">公开访问</option><option value="disabled">禁止访问</option></select> : <strong>{accessPolicy === 'token' ? '私密访问' : accessPolicy === 'public' ? '公开访问' : '禁止访问'}</strong>}</section>
     <div className="access-banner"><span><UiIcon name="info" size={19}/>{privateAccess ? '优先使用私密地址' : publicAccess ? '当前使用公开地址' : '当前未开放订阅访问'}</span><small>系统会根据当前访问策略自动选择可用地址</small></div>
-    <div className="format-link-grid">{formats.map((format) => <section className="format-link-card" key={format.id}><div className="format-link-head"><span className={`metric-icon ${format.tone}`}><UiIcon name="file"/></span><code>{format.suffix}</code></div><h2>{format.title}</h2><p>{format.description}</p><span className="format-file-name">{format.link?.fileName}</span><button className="primary-action icon-action" disabled={!format.link?.recommendedUrl} onClick={() => copy(format.link)}><UiIcon name="copy" size={17}/>复制订阅链接</button></section>)}</div>
+    <div className="subscription-format-groups">{groups.map((group) => <details className="subscription-format-group" key={group.id} data-format-group={group.id}>
+      <summary><strong><UiMessage id={group.title}/></strong><UiIcon name="chevron" size={18}/></summary>
+      <div className="format-link-grid">{group.formats.map((format) => <section className="format-link-card" key={format.id}>
+        <div className="format-link-head"><span className={`metric-icon ${format.tone}`}><UiIcon name="file"/></span><code>{format.suffix}</code></div>
+        <h2>{format.id === 'quantumult-x' ? 'Quantumult X' : format.id === 'loon' ? 'Loon LIST' : <UiMessage id={format.title}/>}</h2>
+        <p><UiMessage id={format.description}/></p>
+        {(format.id === 'general' || format.id === 'loon') && <div className="loon-compatibility"><label><input type="checkbox" checked={loonCompatible} onChange={(event) => setLoonCompatible(event.target.checked)}/><UiMessage id="subscriptions.loon"/></label><small><UiMessage id="subscriptions.loonDescription"/></small></div>}
+        <span className="format-file-name" data-no-translate>{format.link?.fileName}</span>
+        <button className="primary-action icon-action" disabled={!format.link?.recommendedUrl} onClick={() => copy(format.link)}><UiIcon name="copy" size={17}/>复制订阅链接</button>
+      </section>)}</div>
+    </details>)}</div>
   </div>;
 }

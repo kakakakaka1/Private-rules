@@ -5,11 +5,37 @@ export type AppLocale = 'system' | 'zh-CN' | 'zh-TW' | 'en';
 export type ResolvedLocale = Exclude<AppLocale, 'system'>;
 
 const UI_MESSAGES = {
+  'subscriptions.yaml': {"zh-CN": "Mihomo 系列 · YAML", "zh-TW": "Mihomo 系列 · YAML", "en": "Mihomo family · YAML"},
+  'subscriptions.list': {"zh-CN": "LIST 系列", "zh-TW": "LIST 系列", "en": "LIST family"},
+  'subscriptions.json': {"zh-CN": "sing-box 系列 · JSON", "zh-TW": "sing-box 系列 · JSON", "en": "sing-box family · JSON"},
+  'subscriptions.txt': {"zh-CN": "纯文本 · TXT", "zh-TW": "純文字 · TXT", "en": "Plain text · TXT"},
+  'subscriptions.classical': {"zh-CN": "YAML · 完整规则", "zh-TW": "YAML · 完整規則", "en": "YAML · Classical"},
+  'subscriptions.domain': {"zh-CN": "YAML · 域名", "zh-TW": "YAML · 網域", "en": "YAML · Domain"},
+  'subscriptions.ip': {"zh-CN": "YAML · IP/端口", "zh-TW": "YAML · IP/連接埠", "en": "YAML · IP/Port"},
+  'subscriptions.classicalDescription': {"zh-CN": "完整规则类型与值，适用于 behavior: classical", "zh-TW": "完整規則類型與值，適用於 behavior: classical", "en": "Rule types and values for behavior: classical"},
+  'subscriptions.domainDescription': {"zh-CN": "仅含域名值，适用于 behavior: domain", "zh-TW": "僅含網域值，適用於 behavior: domain", "en": "Domain values only, for behavior: domain"},
+  'subscriptions.ipDescription': {"zh-CN": "IP 网段与来源/目标端口，使用 behavior: classical", "zh-TW": "IP 網段與來源/目標連接埠，使用 behavior: classical", "en": "IP ranges and source/destination ports; use behavior: classical"},
+  'subscriptions.general': {"zh-CN": "通用 LIST", "zh-TW": "通用 LIST", "en": "General LIST"},
+  'subscriptions.generalDescription': {"zh-CN": "适用于 Surge、Shadowrocket、Egern；Loon 请勾选兼容选项", "zh-TW": "適用於 Surge、Shadowrocket、Egern；Loon 請勾選相容選項", "en": "For Surge, Shadowrocket, and Egern; enable compatibility for Loon"},
+  'subscriptions.loon': {"zh-CN": "Loon 兼容性", "zh-TW": "Loon 相容性", "en": "Loon compatibility"},
+  'subscriptions.loonDescription': {"zh-CN": "勾选后使用 Loon 专用链接，将目标端口转换为 DEST-PORT", "zh-TW": "勾選後使用 Loon 專用連結，將目標連接埠轉換為 DEST-PORT", "en": "Use a dedicated Loon URL with destination ports converted to DEST-PORT"},
+  'subscriptions.qxDescription': {"zh-CN": "Quantumult X 专用 HOST/IP 规则格式", "zh-TW": "Quantumult X 專用 HOST/IP 規則格式", "en": "Dedicated HOST/IP rule format for Quantumult X"},
+  'subscriptions.jsonDescription': {"zh-CN": "原生 JSON Source Rule Set，支持 sing-box 远程订阅", "zh-TW": "原生 JSON Source Rule Set，支援 sing-box 遠端訂閱", "en": "Native JSON source rule-set for remote sing-box subscriptions"},
+  'subscriptions.textTitle': {"zh-CN": "纯地址列表", "zh-TW": "純位址清單", "en": "Plain address list"},
+  'subscriptions.textDescription': {"zh-CN": "逐行输出规则值，不含规则类型，供脚本或其他工具处理", "zh-TW": "逐行輸出規則值，不含規則類型，供腳本或其他工具處理", "en": "One rule value per line, without rule types, for scripts and other tools"},
+  'subscriptions.choose': {"zh-CN": "按客户端类型展开，选择所需格式并复制链接", "zh-TW": "依用戶端類型展開，選擇所需格式並複製連結", "en": "Expand a client family, choose a format, and copy its URL"},
+
   'optimization.off': { 'zh-CN': '关闭', 'zh-TW': '關閉', en: 'Off' },
 } as const;
 
 export function translateUiMessage(key: keyof typeof UI_MESSAGES, locale: ResolvedLocale) {
   return UI_MESSAGES[key][locale];
+}
+
+export type UiMessageKey = keyof typeof UI_MESSAGES;
+
+export function UiMessage({ id }: { id: UiMessageKey }) {
+  return <span data-i18n-key={id}>{translateUiMessage(id, 'zh-CN')}</span>;
 }
 
 export function resolveSystemLocale(languages: readonly string[]): ResolvedLocale {
@@ -329,6 +355,15 @@ export function translateUiText(text: string, locale: ResolvedLocale) {
 }
 
 function translateTextNode(node: Text, locale: ResolvedLocale) {
+  // MutationObserver also sees our own writes. Keep explicit messages out of
+  // phrase replacement, which could translate an already localized term twice.
+  const parent = node.parentElement;
+  if (parent?.closest('script, style, code, pre, [data-no-translate]')) return;
+  const message = parent?.closest('[data-i18n-key]');
+  if (message && message.getAttribute('data-i18n-key')! in UI_MESSAGES) {
+    localizeNode(message, locale);
+    return;
+  }
   const current = node.nodeValue ?? '';
   const previous = trackedText.get(node);
   const source = previous && current === previous.rendered ? previous.source : current;
