@@ -6,7 +6,7 @@ export type ResolvedLocale = Exclude<AppLocale, 'system'>;
 
 const UI_MESSAGES = {
   'subscriptions.yaml': {"zh-CN": "Mihomo 系列 · YAML", "zh-TW": "Mihomo 系列 · YAML", "en": "Mihomo family · YAML"},
-  'subscriptions.list': {"zh-CN": "LIST 系列", "zh-TW": "LIST 系列", "en": "LIST family"},
+  'subscriptions.list': {"zh-CN": "iOS 系列 · LIST", "zh-TW": "iOS 系列 · LIST", "en": "iOS family · LIST"},
   'subscriptions.json': {"zh-CN": "sing-box 系列 · JSON", "zh-TW": "sing-box 系列 · JSON", "en": "sing-box family · JSON"},
   'subscriptions.txt': {"zh-CN": "纯文本 · TXT", "zh-TW": "純文字 · TXT", "en": "Plain text · TXT"},
   'subscriptions.classical': {"zh-CN": "YAML · 完整规则", "zh-TW": "YAML · 完整規則", "en": "YAML · Classical"},
@@ -16,9 +16,10 @@ const UI_MESSAGES = {
   'subscriptions.domainDescription': {"zh-CN": "仅含域名值，适用于 behavior: domain", "zh-TW": "僅含網域值，適用於 behavior: domain", "en": "Domain values only, for behavior: domain"},
   'subscriptions.ipDescription': {"zh-CN": "IP 网段与来源/目标端口，使用 behavior: classical", "zh-TW": "IP 網段與來源/目標連接埠，使用 behavior: classical", "en": "IP ranges and source/destination ports; use behavior: classical"},
   'subscriptions.general': {"zh-CN": "通用 LIST", "zh-TW": "通用 LIST", "en": "General LIST"},
-  'subscriptions.generalDescription': {"zh-CN": "适用于 Surge、Shadowrocket、Egern；Loon 请勾选兼容选项", "zh-TW": "適用於 Surge、Shadowrocket、Egern；Loon 請勾選相容選項", "en": "For Surge, Shadowrocket, and Egern; enable compatibility for Loon"},
-  'subscriptions.loon': {"zh-CN": "Loon 兼容性", "zh-TW": "Loon 相容性", "en": "Loon compatibility"},
-  'subscriptions.loonDescription': {"zh-CN": "勾选后使用 Loon 专用链接，将目标端口转换为 DEST-PORT", "zh-TW": "勾選後使用 Loon 專用連結，將目標連接埠轉換為 DEST-PORT", "en": "Use a dedicated Loon URL with destination ports converted to DEST-PORT"},
+  'subscriptions.generalDescription': {"zh-CN": "适用于 Surge、Shadowrocket 与 Egern", "zh-TW": "適用於 Surge、Shadowrocket 與 Egern", "en": "For Surge, Shadowrocket, and Egern"},
+  'subscriptions.loon': {"zh-CN": "Loon LIST", "zh-TW": "Loon LIST", "en": "Loon LIST"},
+  'subscriptions.loonDescription': {"zh-CN": "Loon 专用规则链接，目标端口使用 DEST-PORT", "zh-TW": "Loon 專用規則連結，目標連接埠使用 DEST-PORT", "en": "Dedicated Loon rules with destination ports exported as DEST-PORT"},
+  'subscriptions.quantumultX': {"zh-CN": "Quantumult X", "zh-TW": "Quantumult X", "en": "Quantumult X"},
   'subscriptions.qxDescription': {"zh-CN": "Quantumult X 专用 HOST/IP 规则格式", "zh-TW": "Quantumult X 專用 HOST/IP 規則格式", "en": "Dedicated HOST/IP rule format for Quantumult X"},
   'subscriptions.jsonDescription': {"zh-CN": "原生 JSON Source Rule Set，支持 sing-box 远程订阅", "zh-TW": "原生 JSON Source Rule Set，支援 sing-box 遠端訂閱", "en": "Native JSON source rule-set for remote sing-box subscriptions"},
   'subscriptions.textTitle': {"zh-CN": "纯地址列表", "zh-TW": "純位址清單", "en": "Plain address list"},

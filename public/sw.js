@@ -1,5 +1,5 @@
-const CACHE_NAME = 'private-rules-pwa-v1';
-const APP_SHELL = ['/pwa-install', '/manifest.webmanifest', '/pwa-icon-192.png', '/pwa-icon-512.png', '/apple-touch-icon.png'];
+const CACHE_NAME = 'private-rules-pwa-v2';
+const APP_SHELL = ['/pwa-install', '/manifest.webmanifest', '/pwa-icon-192.png', '/pwa-icon-512.png', '/apple-touch-icon-1.0.6.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

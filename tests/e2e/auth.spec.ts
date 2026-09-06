@@ -49,7 +49,9 @@ test('PWA install page and install metadata are available without authentication
   await expect(manifest.json()).resolves.toMatchObject({ name: 'Private Rules', display: 'standalone', start_url: '/admin?source=pwa' });
   expect((await request.get('/sw.js')).status()).toBe(200);
   expect((await request.get('/pwa-icon-192.png')).status()).toBe(200);
-  expect((await request.get('/apple-touch-icon.png')).status()).toBe(200);
+  const appleIcon = await request.get('/apple-touch-icon-1.0.6.png');
+  expect(appleIcon.status()).toBe(200);
+  expect(appleIcon.headers()['content-type']).toContain('image/png');
 });
 
 test('private Telegram session, theme, deep links, and write access', async ({ page, request }) => {

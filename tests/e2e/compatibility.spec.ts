@@ -10,7 +10,7 @@ async function createCategory(page: Page) {
 }
 
 for (const locale of ['zh-CN', 'zh-TW', 'en']) {
-  test(`subscription groups, translations and Loon opt-in (${locale})`, async ({ page }) => {
+  test(`subscription groups, animation and separate Loon link (${locale})`, async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     const category = await createCategory(page);
@@ -19,24 +19,26 @@ for (const locale of ['zh-CN', 'zh-TW', 'en']) {
     await page.goto(`/admin?view=links&category=${category.id}`);
     const groups = page.locator('.subscription-format-group');
     await expect(groups).toHaveCount(4);
-    await expect(page.locator('.format-link-card:visible')).toHaveCount(0);
+    expect(await groups.locator('.subscription-format-content').evaluateAll((elements) => elements.every((element) => element.getAttribute('aria-hidden') === 'true' && element.hasAttribute('inert')))).toBe(true);
     const yaml = page.locator('[data-format-group="yaml"]');
-    await yaml.locator('summary').click();
+    await expect(yaml.locator('.subscription-format-content')).toHaveCSS('grid-template-rows', '0px');
+    await expect(yaml.locator('.subscription-format-content')).not.toHaveCSS('transition-duration', '0s');
+    await yaml.getByRole('button').first().click();
     const ipTitle = locale === 'en' ? 'YAML · IP/Port' : locale === 'zh-TW' ? 'YAML · IP/連接埠' : 'YAML · IP/端口';
     await expect(yaml.getByRole('heading', { name: ipTitle, exact: true })).toBeVisible();
     const domainTitle = locale === 'en' ? 'YAML · Domain' : locale === 'zh-TW' ? 'YAML · 網域' : 'YAML · 域名';
     await expect(yaml.getByRole('heading', { name: domainTitle, exact: true })).toBeVisible();
     await expect(yaml.locator('code').filter({ hasText: '_Domain.yaml' })).toBeVisible();
     const list = page.locator('[data-format-group="list"]');
-    await list.locator('summary').click();
+    await expect(yaml.locator('.subscription-format-content')).not.toHaveCSS('grid-template-rows', '0px');
+    await yaml.getByRole('button').first().click();
+    await expect(yaml.locator('.subscription-format-content')).toHaveCSS('grid-template-rows', '0px');
+    await list.getByRole('button').first().click();
+    await expect(list.getByText(locale === 'en' ? 'iOS family · LIST' : 'iOS 系列 · LIST', { exact: true })).toBeVisible();
+    await expect(list.getByRole('heading', { name: 'Loon LIST', exact: true })).toBeVisible();
     await expect(list.getByRole('heading', { name: 'Quantumult X', exact: true })).toBeVisible();
-    const checkbox = list.getByRole('checkbox');
-    await expect(checkbox).not.toBeChecked();
-    await checkbox.check();
-    await expect(list.locator('.format-file-name').first()).toHaveText(/-loon\.list$/);
-    await expect(list.getByRole('checkbox')).toBeChecked();
-    await list.getByRole('checkbox').uncheck();
-    await expect(list.locator('.format-file-name').first()).not.toHaveText(/-loon\.list$/);
+    await expect(list.getByRole('checkbox')).toHaveCount(0);
+    await expect(list.locator('.format-file-name')).toHaveText([/\.list$/, /-loon\.list$/, /-qx\.list$/]);
     if (locale === 'en') expect((await groups.allTextContents()).join(' ')).not.toMatch(/[\u3400-\u9fff]/u);
     expect(errors).toEqual([]);
     await page.screenshot({ path: `test-results/subscriptions-${locale}.png`, fullPage: true });

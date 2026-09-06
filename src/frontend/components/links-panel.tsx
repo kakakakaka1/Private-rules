@@ -12,7 +12,7 @@ type FormatLink = { id: string; title: UiMessageKey; suffix: string; description
 type AccessPolicy = 'token' | 'public' | 'disabled';
 
 export function LinksPanel({ api, data, links, onToast }: { api: ReturnType<typeof useDomainAdmin>; data: RulesData; links: Record<string, ClientLink[]>; onToast: (message: string) => void }) {
-  const [loonCompatible, setLoonCompatible] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.search).get('category') ?? '');
   const { value: sortKey, direction: sortDirection, setValue: setSortKey, setDirection: setSortDirection } = usePersistentSort('subscriptions');
   const selectedCategory = data.categories.find((category) => category.id === selectedId);
@@ -28,8 +28,9 @@ export function LinksPanel({ api, data, links, onToast }: { api: ReturnType<type
       format('yaml-ipcidr', 'subscriptions.ip', '_IPCIDR.yaml', 'subscriptions.ipDescription', 'cyan'),
     ] },
     { id: 'list', title: 'subscriptions.list', formats: [
-      format(loonCompatible ? 'loon' : 'general', 'subscriptions.general', loonCompatible ? '-loon.list' : '.list', 'subscriptions.generalDescription', 'purple'),
-      format('quantumult-x', 'subscriptions.list', '-qx.list', 'subscriptions.qxDescription', 'purple'),
+      format('general', 'subscriptions.general', '.list', 'subscriptions.generalDescription', 'purple'),
+      format('loon', 'subscriptions.loon', '-loon.list', 'subscriptions.loonDescription', 'purple'),
+      format('quantumult-x', 'subscriptions.quantumultX', '-qx.list', 'subscriptions.qxDescription', 'purple'),
     ] },
     { id: 'json', title: 'subscriptions.json', formats: [
       format('json', 'subscriptions.json', '.json', 'subscriptions.jsonDescription', 'orange'),
@@ -49,6 +50,14 @@ export function LinksPanel({ api, data, links, onToast }: { api: ReturnType<type
     await api.updateCategory(selectedCategory.id, { tokenLinksEnabled: policy === 'token', publicLinksEnabled: policy === 'public' });
     onToast('规则访问策略已更新');
   }
+  function toggleGroup(id: string) {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   if (!selectedCategory) return <div className="page-stack unified-page">
     <header className="page-title"><div><span className="eyebrow">SUBSCRIPTIONS</span><h1>订阅中心</h1><p>选择规则与文件格式，每种格式对应一个通用地址</p></div></header>
@@ -62,16 +71,15 @@ export function LinksPanel({ api, data, links, onToast }: { api: ReturnType<type
     <header className="page-title detail-title"><div><button className="back-button" onClick={() => setSelectedId('')}><UiIcon name="arrowLeft" size={20}/>返回订阅中心</button><div className="detail-name"><CategoryIcon icon={selectedCategory.icon} name={selectedCategory.name} size={58}/><span><h1>{selectedCategory.name} 订阅</h1><p><UiMessage id="subscriptions.choose"/></p></span></div></div></header>
     <section className="soft-card unified-card subscription-access-card"><div><span className="metric-icon blue"><UiIcon name="settings"/></span><span><h2>规则访问策略</h2><p>只影响 {selectedCategory.name} 的订阅链接</p></span></div>{api.can('toggle') ? <select className="app-input access-policy-select" value={accessPolicy} onChange={(event) => setAccess(event.target.value as AccessPolicy)}><option value="token">私密访问（带密钥）</option><option value="public">公开访问</option><option value="disabled">禁止访问</option></select> : <strong>{accessPolicy === 'token' ? '私密访问' : accessPolicy === 'public' ? '公开访问' : '禁止访问'}</strong>}</section>
     <div className="access-banner"><span><UiIcon name="info" size={19}/>{privateAccess ? '优先使用私密地址' : publicAccess ? '当前使用公开地址' : '当前未开放订阅访问'}</span><small>系统会根据当前访问策略自动选择可用地址</small></div>
-    <div className="subscription-format-groups">{groups.map((group) => <details className="subscription-format-group" key={group.id} data-format-group={group.id}>
-      <summary><strong><UiMessage id={group.title}/></strong><UiIcon name="chevron" size={18}/></summary>
-      <div className="format-link-grid">{group.formats.map((format) => <section className="format-link-card" key={format.id}>
+    <div className="subscription-format-groups">{groups.map((group) => { const expanded = expandedGroups.has(group.id); return <section className={`subscription-format-group${expanded ? ' expanded' : ''}`} key={group.id} data-format-group={group.id}>
+      <button className="subscription-format-summary" type="button" aria-expanded={expanded} aria-controls={`subscription-format-${group.id}`} onClick={() => toggleGroup(group.id)}><strong><UiMessage id={group.title}/></strong><UiIcon name="chevron" size={18}/></button>
+      <div className="subscription-format-content" id={`subscription-format-${group.id}`} aria-hidden={!expanded} inert={!expanded}><div className="format-link-grid">{group.formats.map((format) => <section className="format-link-card" key={format.id}>
         <div className="format-link-head"><span className={`metric-icon ${format.tone}`}><UiIcon name="file"/></span><code>{format.suffix}</code></div>
-        <h2>{format.id === 'quantumult-x' ? 'Quantumult X' : format.id === 'loon' ? 'Loon LIST' : <UiMessage id={format.title}/>}</h2>
+        <h2><UiMessage id={format.title}/></h2>
         <p><UiMessage id={format.description}/></p>
-        {(format.id === 'general' || format.id === 'loon') && <div className="loon-compatibility"><label><input type="checkbox" checked={loonCompatible} onChange={(event) => setLoonCompatible(event.target.checked)}/><UiMessage id="subscriptions.loon"/></label><small><UiMessage id="subscriptions.loonDescription"/></small></div>}
         <span className="format-file-name" data-no-translate>{format.link?.fileName}</span>
         <button className="primary-action icon-action" disabled={!format.link?.recommendedUrl} onClick={() => copy(format.link)}><UiIcon name="copy" size={17}/>复制订阅链接</button>
-      </section>)}</div>
-    </details>)}</div>
+      </section>)}</div></div>
+    </section>; })}</div>
   </div>;
 }
